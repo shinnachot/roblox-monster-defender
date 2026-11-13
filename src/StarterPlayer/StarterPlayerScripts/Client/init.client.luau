@@ -15,6 +15,7 @@ local DamageNumbers = require(script:WaitForChild("DamageNumbers"))
 local ArrowVisuals = require(script:WaitForChild("ArrowVisuals"))
 local CameraController = require(script:WaitForChild("CameraController"))
 local Hud = require(script:WaitForChild("Hud"))
+local BowAim = require(script:WaitForChild("BowAim"))
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -22,7 +23,7 @@ local camera = workspace.CurrentCamera
 local SwordCfg = Config.Weapons.Sword
 local BowCfg = Config.Weapons.Bow
 local RollCfg = Config.Roll
-local TRACK_NAMES = { "SwordSlash1", "SwordSlash2", "SwordSlash3", BowCfg.Anim.Name, RollCfg.Anim.Name }
+local TRACK_NAMES = { "SwordSlash1", "SwordSlash2", "SwordSlash3", RollCfg.Anim.Name }
 
 -- สถานะตัวละครปัจจุบัน
 local char, hum, root, rootJoint
@@ -76,10 +77,7 @@ local function cancelDraw(notifyServer)
 	drawStart = nil
 	Hud.SetCharge(nil)
 	CameraController.SetAiming(false)
-	local drawTrack = tracks[BowCfg.Anim.Name]
-	if drawTrack then
-		stopSegment(drawTrack, 0.15)
-	end
+	BowAim.Stop()
 	if hum then
 		hum.WalkSpeed = defaultWalkSpeed
 	end
@@ -98,12 +96,7 @@ local function startDraw()
 	end
 	drawStart = os.clock()
 	CameraController.SetAiming(true)
-	-- ค้างท่าง้าง (ความเร็ว 0) แล้ว blend เข้าจากท่ายืน
-	local seg = BowCfg.Anim
-	local drawTrack = tracks[seg.Name]
-	segmentToken[drawTrack] = nil
-	drawTrack:Play(seg.FadeIn, 1, 0)
-	drawTrack.TimePosition = seg.HoldTime
+	BowAim.Start(drawStart) -- ท่าง้างแบบ IK: มือขวาดึงสายตามแรงง้าง
 	hum.WalkSpeed = BowCfg.DrawWalkSpeed
 	Sfx.Play("BowDraw")
 	Remotes.BowDrawStart:FireServer()
@@ -118,6 +111,8 @@ local function releaseDraw()
 		cancelDraw(true)
 		return
 	end
+	-- ทิศปล่อย (ชดเชยวิถีโค้งให้ไปตกที่จุดเล็ง) — คำนวณก่อนกล้องถอยกลับมุมปกติ
+	local direction = BowAim.GetLaunchDirection(charge)
 	cancelDraw(false)
 
 	local head = char:FindFirstChild("Head")
@@ -125,12 +120,6 @@ local function releaseDraw()
 		Remotes.BowCancel:FireServer()
 		return
 	end
-	local aimPoint = CameraController.GetAimPoint()
-	local direction = aimPoint - head.Position
-	if direction.Magnitude < 6 then
-		direction = camera.CFrame.LookVector
-	end
-	direction = direction.Unit
 
 	Sfx.Play("BowRelease") -- สายธนูตอนปล่อย: เล่นทันทีไม่รอ server
 	Remotes.BowFire:FireServer(direction)
@@ -332,6 +321,7 @@ local function onCharacterAdded(newChar)
 	Hud.SetCharge(nil)
 	Hud.SetEquipped(equipped)
 	CameraController.SetCharacter(newChar)
+	BowAim.SetCharacter(newChar)
 end
 
 StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)

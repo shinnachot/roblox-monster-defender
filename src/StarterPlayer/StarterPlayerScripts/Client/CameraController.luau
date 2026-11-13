@@ -9,6 +9,11 @@ local CameraController = {}
 
 CameraController.FaceCamera = true -- ปิดชั่วคราวตอนกลิ้งหลบ
 
+-- หมุนลำตัวเทียบกับทิศกล้อง (เรเดียน) — ตอนง้างธนูตัวละครยืนหันข้างให้เป้า
+CameraController.YawOffset = 0
+local currentYaw = 0
+local currentOffset = Vector3.new(1.75, 0.5, 0)
+
 local SHOULDER_OFFSET = Vector3.new(1.75, 0.5, 0)
 local AIM_DISTANCE = 600
 
@@ -40,9 +45,7 @@ function CameraController.SetAiming(enabled)
 	end
 	aiming = enabled
 	TweenService:Create(camera, AIM_TWEEN, { FieldOfView = enabled and AIM_FOV or NORMAL_FOV }):Play()
-	if humanoid and humanoid.Parent then
-		TweenService:Create(humanoid, AIM_TWEEN, { CameraOffset = enabled and AIM_OFFSET or SHOULDER_OFFSET }):Play()
-	end
+	-- ระยะเยื้องกล้องค่อย ๆ เลื่อนใน render step (ต้องหมุนชดเชยตามลำตัวทุกเฟรม)
 end
 
 -- จุดที่กลางจอเล็งอยู่ในโลก (ไม่นับตัวผู้เล่นและลูกธนู)
@@ -64,7 +67,7 @@ function CameraController.GetAimPoint()
 	local origin = camera.CFrame.Position
 	local direction = camera.CFrame.LookVector * AIM_DISTANCE
 	local result = workspace:Raycast(origin, direction, params)
-	return result and result.Position or (origin + direction)
+	return result and result.Position or (origin + direction), result ~= nil
 end
 
 function CameraController.Init()
@@ -73,18 +76,22 @@ function CameraController.Init()
 	player.CameraMinZoomDistance = 8
 
 	-- รันหลัง CameraModule ของ Roblox เพื่อให้ค่า MouseBehavior ของเรามีผล
-	RunService:BindToRenderStep("MD_ShiftLock", Enum.RenderPriority.Camera.Value + 1, function()
+	RunService:BindToRenderStep("MD_ShiftLock", Enum.RenderPriority.Camera.Value + 1, function(dt)
 		if not character or not character.Parent or not humanoid or humanoid.Health <= 0 then
 			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 			return
 		end
 		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+		-- CameraOffset อยู่ในแกนของตัวละคร: หมุนกลับตามมุมลำตัว ให้กล้องเยื้องไปทางขวาของจอเสมอ
+		currentOffset = currentOffset:Lerp(aiming and AIM_OFFSET or SHOULDER_OFFSET, math.min(1, dt * 12))
+		humanoid.CameraOffset = CFrame.Angles(0, -currentYaw, 0) * currentOffset
 		if CameraController.FaceCamera then
 			local look = camera.CFrame.LookVector
 			local flat = Vector3.new(look.X, 0, look.Z)
 			if flat.Magnitude > 0.01 then
+				currentYaw += (CameraController.YawOffset - currentYaw) * math.min(1, dt * 14)
 				local position = rootPart.Position
-				rootPart.CFrame = CFrame.lookAt(position, position + flat)
+				rootPart.CFrame = CFrame.lookAt(position, position + flat) * CFrame.Angles(0, currentYaw, 0)
 			end
 		end
 	end)

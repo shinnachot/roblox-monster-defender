@@ -49,15 +49,21 @@ Config.Weapons = {
 		MinCharge = 0.15, -- ง้างน้อยกว่านี้ = ยกเลิก ไม่เสียลูกธนู
 		MinDamage = 12,
 		MaxDamage = 45,
-		MinSpeed = 70, -- studs/s
-		MaxSpeed = 160, -- ช้าพอให้ตามองลูกธนูทัน
-		Gravity = 45,
-		MaxFlightTime = 4,
+		-- ระยะยิงไกลสุดบนพื้นราบ = Speed^2 / Gravity (ง้างสุด ~1,000 studs, ง้างน้อยสุด ~230)
+		-- client ยกมุมยิงชดเชยให้ลูกธนูไปตกที่จุดเล็ง (ดู BowAim)
+		MinSpeed = 90, -- studs/s
+		MaxSpeed = 190,
+		Gravity = 35,
+		MaxFlightTime = 6,
 		DrawWalkSpeed = 8,
-		-- คลิปที่ generate ได้ไม่มีช่วง "ง้าง" ที่ลื่นไหล จึงใช้ท่าค้าง (HoldTime) แล้ว blend เข้าด้วย FadeIn
-		Anim = { Name = "BowDraw2", HoldTime = 4.4, FadeIn = 0.35 },
-		-- หมุนคันธนูในมือให้ตั้งตรงและหันไปข้างหน้าในท่าค้าง (องศา X, Y, Z)
-		GripOrientation = Vector3.new(27, -40, 47),
+		-- ท่าง้างจัดด้วย IK ฝั่ง client (ดู BowAim) — ไม่ใช้คลิป animation
+		DrawPose = {
+			BodyYaw = 70, -- องศาที่ลำตัวหันข้าง (ไหล่ซ้ายนำเข้าหาเป้า)
+			ArmReach = 2.0, -- ระยะจากไหล่ซ้ายถึงคันธนู
+			Raise = 0.25, -- ยกเส้นลูกธนูขึ้นจากไหล่ให้ถึงระดับคาง
+			StringRest = 0.5, -- มือขวาห่างคันธนูตอนยังไม่ดึง
+			DrawLength = 1.9, -- ดึงสายถอยเพิ่มเมื่อง้างสุด
+		},
 	},
 }
 

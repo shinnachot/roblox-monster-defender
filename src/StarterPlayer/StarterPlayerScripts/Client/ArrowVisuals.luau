@@ -8,7 +8,7 @@ local template = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Weapons"
 
 local ArrowVisuals = {}
 
-local MAX_FLIGHT_TIME = 4
+local MAX_FLIGHT_TIME = 6
 local STICK_TIME = 4 -- ปักคาไว้ให้เห็นว่าโดนตรงไหน / พลาดไปตกตรงไหน
 local VISUAL_SCALE = 1.3 -- ขยายเล็กน้อยให้มองเห็นตอนบิน
 local HALF_LENGTH = 1.95 * VISUAL_SCALE

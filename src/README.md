@@ -23,8 +23,9 @@ Animation (สร้างด้วย `generate_animation`, อยู่ใน�
 | SwordSlash1 | 85172413897286 | |
 | SwordSlash2 | 117425635427522 | |
 | SwordSlash3 | 119096744923720 | ใช้เป็นท่าตีของ Goblin ด้วย |
-| BowDraw2 | 129457287557843 | ใช้เฉพาะท่าค้างที่ t=4.4 |
 | Roll | 114548083139152 | ตัด root motion แนวราบออกใน client |
 | GoblinDeath | 89394267292810 | |
+
+ท่าง้างธนูไม่ใช้คลิป animation — จัดท่าด้วย IK ใน `Client/BowAim.luau`
 
 เสียง: ดู `ReplicatedStorage.Assets.Sounds` ใน Studio (id อยู่ใน SoundId ของแต่ละตัว)
