@@ -97,7 +97,11 @@ function PlayerService.Damage(player, amount)
 	if os.clock() < st.IFrameUntil then
 		return false
 	end
+	local before = hum.Health
 	hum:TakeDamage(amount)
+	if hum.Health >= before then
+		return false -- มี ForceField กันอยู่ (เช่นเพิ่งเกิด)
+	end
 	Remotes.PlayerHurt:FireClient(player, amount)
 	return true
 end

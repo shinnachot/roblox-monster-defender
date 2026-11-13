@@ -49,9 +49,9 @@ Config.Weapons = {
 		MinCharge = 0.15, -- ง้างน้อยกว่านี้ = ยกเลิก ไม่เสียลูกธนู
 		MinDamage = 12,
 		MaxDamage = 45,
-		MinSpeed = 90, -- studs/s
-		MaxSpeed = 220,
-		Gravity = 60,
+		MinSpeed = 70, -- studs/s
+		MaxSpeed = 160, -- ช้าพอให้ตามองลูกธนูทัน
+		Gravity = 45,
 		MaxFlightTime = 4,
 		DrawWalkSpeed = 8,
 		-- คลิปที่ generate ได้ไม่มีช่วง "ง้าง" ที่ลื่นไหล จึงใช้ท่าค้าง (HoldTime) แล้ว blend เข้าด้วย FadeIn
