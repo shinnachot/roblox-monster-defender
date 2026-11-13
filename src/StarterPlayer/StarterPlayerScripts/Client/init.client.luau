@@ -75,6 +75,7 @@ local function cancelDraw(notifyServer)
 	end
 	drawStart = nil
 	Hud.SetCharge(nil)
+	CameraController.SetAiming(false)
 	local drawTrack = tracks[BowCfg.Anim.Name]
 	if drawTrack then
 		stopSegment(drawTrack, 0.15)
@@ -96,6 +97,7 @@ local function startDraw()
 		return
 	end
 	drawStart = os.clock()
+	CameraController.SetAiming(true)
 	-- ค้างท่าง้าง (ความเร็ว 0) แล้ว blend เข้าจากท่ายืน
 	local seg = BowCfg.Anim
 	local drawTrack = tracks[seg.Name]

@@ -3,6 +3,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
 local CameraController = {}
 
@@ -10,6 +11,13 @@ CameraController.FaceCamera = true -- ปิดชั่วคราวตอน
 
 local SHOULDER_OFFSET = Vector3.new(1.75, 0.5, 0)
 local AIM_DISTANCE = 600
+
+-- โหมดเล็ง (ตอนง้างธนู): ขยับกล้องไปทางขวา/ขึ้นบน และซูมเข้า เพื่อไม่ให้ตัวละครบังเป้า
+local AIM_OFFSET = Vector3.new(2.8, 1.4, 0)
+local NORMAL_FOV = 70
+local AIM_FOV = 52
+local AIM_TWEEN = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local aiming = false
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -22,6 +30,19 @@ function CameraController.SetCharacter(newCharacter)
 	humanoid.CameraOffset = SHOULDER_OFFSET
 	humanoid.AutoRotate = false
 	CameraController.FaceCamera = true
+	aiming = false
+	camera.FieldOfView = NORMAL_FOV
+end
+
+function CameraController.SetAiming(enabled)
+	if aiming == enabled then
+		return
+	end
+	aiming = enabled
+	TweenService:Create(camera, AIM_TWEEN, { FieldOfView = enabled and AIM_FOV or NORMAL_FOV }):Play()
+	if humanoid and humanoid.Parent then
+		TweenService:Create(humanoid, AIM_TWEEN, { CameraOffset = enabled and AIM_OFFSET or SHOULDER_OFFSET }):Play()
+	end
 end
 
 -- จุดที่กลางจอเล็งอยู่ในโลก (ไม่นับตัวผู้เล่นและลูกธนู)
