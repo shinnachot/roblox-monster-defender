@@ -16,6 +16,7 @@ local ArrowVisuals = require(script:WaitForChild("ArrowVisuals"))
 local CameraController = require(script:WaitForChild("CameraController"))
 local Hud = require(script:WaitForChild("Hud"))
 local BowAim = require(script:WaitForChild("BowAim"))
+local LegBlend = require(script:WaitForChild("LegBlend"))
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -322,6 +323,12 @@ local function onCharacterAdded(newChar)
 	Hud.SetEquipped(equipped)
 	CameraController.SetCharacter(newChar)
 	BowAim.SetCharacter(newChar)
+	-- ให้ขาเดินต่อระหว่างฟันดาบขณะเคลื่อนที่
+	local slashTracks = {}
+	for _, seg in SwordCfg.Combo do
+		table.insert(slashTracks, tracks[seg.Anim])
+	end
+	task.spawn(LegBlend.SetCharacter, newChar, slashTracks)
 end
 
 StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
