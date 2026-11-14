@@ -26,6 +26,6 @@ Animation (สร้างด้วย `generate_animation`, อยู่ใน�
 | Roll | 114548083139152 | ตัด root motion แนวราบออกใน client |
 | GoblinDeath | 89394267292810 | |
 
-ท่าง้างธนูไม่ใช้คลิป animation — จัดท่าด้วย IK ใน `Client/BowAim.luau`
+ท่าง้างธนูไม่ใช้คลิป animation — ตั้งมุมข้อต่อแขนโดยตรงใน `Client/BowAim.luau`
 
 เสียง: ดู `ReplicatedStorage.Assets.Sounds` ใน Studio (id อยู่ใน SoundId ของแต่ละตัว)

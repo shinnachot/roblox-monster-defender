@@ -1,12 +1,11 @@
--- BowAim: ท่าง้างธนูแบบคำนวณสด (IK) + ทิศทางปล่อยลูกธนู
--- generate_animation สร้างท่าง้างที่สมจริงไม่ได้ จึงจัดท่าเองทุกเฟรม:
---   ลำตัวหันข้าง, แขนซ้ายเหยียดถือคันธนูชี้ไปตามทิศยิง, มือขวาดึงสายถอยหลังตามแรงง้าง,
---   ศีรษะมองเป้า, มีลูกธนูพาดสาย — ขายังเล่น animation เดิน/ยืนปกติ จึงไม่ไถล
+-- BowAim: ท่าง้างธนู + ทิศทางปล่อยลูกธนู
+-- ท่าง้างตั้งมุมข้อต่อแขน/คอโดยตรงทุกเฟรม (ทับ animation เฉพาะช่วงบน ขายังเดินปกติ):
+--   ลำตัวหันข้าง, แขนซ้ายเหยียดตรงถือคันธนูชี้ไปตามทิศยิง, แขนขวางอศอกถอยหลังตามแรงง้าง,
+--   ศีรษะหันไปทางเป้า, มีลูกธนูพาดสาย
+-- เป็นท่าโดยประมาณ (มือขวาไม่ได้จับหางลูกธนูเป๊ะ) — ไม่ใช้ IK เพราะ IK ทำให้มือหมุนมั่วตอนเดิน
 -- หมายเหตุ: เห็นเฉพาะฝั่งตัวเอง — เฟส 4 (multiplayer) ต้องส่งสถานะง้างให้ client อื่นจัดท่าตาม
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local CameraController = require(script.Parent:WaitForChild("CameraController"))
@@ -18,78 +17,37 @@ local arrowTemplate = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Wea
 local BowAim = {}
 
 local camera = workspace.CurrentCamera
-local BLEND = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local BLEND_SPEED = 12
 local ARROW_HALF_LENGTH = 1.95
 
-local character, head, upperTorso, leftShoulder, gripAttachment
-local controls = {}
-local targets = {}
+local character, head, upperTorso, leftHand
+local joints = {}
 local nockedArrow
 local drawStart
+local weight = 0 -- 0 = animation ปกติ, 1 = ท่าง้างเต็ม
 
-local function makeTarget(name)
-	local attachment = Instance.new("Attachment")
-	attachment.Name = "BowAim_" .. name
-	attachment.Parent = workspace.Terrain
-	return attachment
-end
-
-local function makeControl(humanoid, name, controlType, chainRoot, endEffector, target)
-	local control = Instance.new("IKControl")
-	control.Name = "BowAim_" .. name
-	control.Type = controlType
-	control.ChainRoot = chainRoot
-	control.EndEffector = endEffector
-	control.Target = target
-	control.SmoothTime = 0
-	control.Weight = 0
-	control.Enabled = false
-	control.Parent = humanoid
-	return control
-end
-
-local function setControlsActive(active)
-	for _, control in controls do
-		if active then
-			control.Enabled = true
-		end
-		local tween = TweenService:Create(control, BLEND, { Weight = active and 1 or 0 })
-		tween:Play()
-		if not active then
-			tween.Completed:Once(function()
-				if not drawStart then
-					control.Enabled = false
-				end
-			end)
-		end
-	end
-end
+local JOINTS = {
+	LeftShoulder = "LeftUpperArm",
+	LeftElbow = "LeftLowerArm",
+	LeftWrist = "LeftHand",
+	RightShoulder = "RightUpperArm",
+	RightElbow = "RightLowerArm",
+	RightWrist = "RightHand",
+	Neck = "Head",
+}
 
 function BowAim.SetCharacter(newCharacter)
 	BowAim.Stop()
-	for _, target in targets do
-		target:Destroy()
-	end
-	table.clear(targets)
-	table.clear(controls)
-
+	weight = 0
+	table.clear(joints)
 	character = newCharacter
-	local humanoid = newCharacter:WaitForChild("Humanoid")
 	head = newCharacter:WaitForChild("Head")
 	upperTorso = newCharacter:WaitForChild("UpperTorso")
-	local leftUpperArm = newCharacter:WaitForChild("LeftUpperArm")
-	local leftHand = newCharacter:WaitForChild("LeftHand")
-	local rightUpperArm = newCharacter:WaitForChild("RightUpperArm")
-	local rightHand = newCharacter:WaitForChild("RightHand")
-	leftShoulder = leftUpperArm:WaitForChild("LeftShoulder")
-	gripAttachment = leftHand:WaitForChild("LeftGripAttachment")
-
-	targets.Left = makeTarget("Left")
-	targets.Right = makeTarget("Right")
-	targets.Head = makeTarget("Head")
-	controls.Left = makeControl(humanoid, "Left", Enum.IKControlType.Transform, leftUpperArm, leftHand, targets.Left)
-	controls.Right = makeControl(humanoid, "Right", Enum.IKControlType.Position, rightUpperArm, rightHand, targets.Right)
-	controls.Head = makeControl(humanoid, "Head", Enum.IKControlType.LookAt, head, head, targets.Head)
+	leftHand = newCharacter:WaitForChild("LeftHand")
+	for jointName, partName in JOINTS do
+		local part = newCharacter:WaitForChild(partName, 10)
+		joints[jointName] = part and part:WaitForChild(jointName, 10)
+	end
 end
 
 local function chargeNow()
@@ -124,30 +82,71 @@ function BowAim.GetLaunchDirection(charge)
 	return (flat.Unit + Vector3.yAxis * tangent).Unit
 end
 
-local function update()
-	if not drawStart or not character or not character.Parent then
+-- การหมุนของชิ้นส่วนแขน ที่ทำให้ปลายแขน (แกน -Y ของชิ้นส่วน) ชี้ไปทาง direction
+-- และแกน -Z (ด้านหน้าของมือ = แนวคันธนู) ชี้ใกล้ front ที่สุด
+local function limbRotation(direction, front)
+	local yAxis = -direction
+	local zAxis = -front
+	zAxis -= zAxis:Dot(yAxis) * yAxis
+	if zAxis.Magnitude < 1e-3 then
+		zAxis = Vector3.xAxis - Vector3.xAxis:Dot(yAxis) * yAxis
+	end
+	zAxis = zAxis.Unit
+	return CFrame.fromMatrix(Vector3.zero, yAxis:Cross(zAxis), yAxis, zAxis)
+end
+
+-- ตั้ง Transform ของข้อต่อให้ชิ้นส่วนลูกหันตาม desired (world) โดยรู้การหมุนของชิ้นส่วนแม่
+local function pose(jointName, parentRotation, desiredRotation)
+	local joint = joints[jointName]
+	if not joint then
 		return
 	end
+	local target = joint.C0.Rotation:Inverse() * parentRotation:Inverse() * desiredRotation * joint.C1.Rotation
+	joint.Transform = joint.Transform:Lerp(target, weight)
+end
+
+local function update(_, dt)
+	local goal = drawStart and 1 or 0
+	weight += (goal - weight) * math.min(1, dt * BLEND_SPEED)
+	if goal == 0 and weight < 0.02 then
+		weight = 0
+		return
+	end
+	if not character or not character.Parent then
+		return
+	end
+
 	local charge = chargeNow()
 	local aim = BowAim.GetLaunchDirection(charge)
-
 	local right = aim:Cross(Vector3.yAxis)
 	right = right.Magnitude > 0.01 and right.Unit or camera.CFrame.RightVector
 	local up = right:Cross(aim)
+	local torso = upperTorso.CFrame.Rotation
 
-	-- เส้นลูกธนู: ผ่านเหนือไหล่ซ้ายเล็กน้อย (ระดับคาง) ชี้ไปตามทิศยิง
-	local shoulder = upperTorso.CFrame:PointToWorldSpace(leftShoulder.C0.Position)
-	local bowPosition = shoulder + Vector3.yAxis * Pose.Raise + aim * Pose.ArmReach
-	local bowCFrame = CFrame.fromMatrix(bowPosition, right, up, -aim) -- คันธนูตั้งตรง หันหน้าไปทางเป้า
-	targets.Left.WorldCFrame = bowCFrame * gripAttachment.CFrame:Inverse()
+	-- แขนซ้าย: เหยียดตรงตามทิศยิง คันธนูตั้งตรง
+	local bowArm = limbRotation(aim, up)
+	pose("LeftShoulder", torso, bowArm)
+	pose("LeftElbow", bowArm, bowArm)
+	pose("LeftWrist", bowArm, bowArm)
 
-	-- มือขวาดึงสายถอยหลังตามแรงง้าง
-	local handPosition = bowPosition - aim * (Pose.StringRest + Pose.DrawLength * charge)
-	targets.Right.WorldPosition = handPosition
-	targets.Head.WorldPosition = head.Position + aim * 60
+	-- แขนขวา: เริ่มจากยื่นไปข้างหน้า แล้วงอศอกถอยหลังจนมือมาอยู่แถวคางเมื่อง้างสุด
+	local upperStart = aim * 0.55 + right * 0.6 - up * 0.2
+	local upperEnd = -aim * 0.25 + right * 0.7 + up * 0.35
+	local foreStart = aim * 0.95 + up * 0.1
+	local foreEnd = aim * 0.95 - right * 0.55 + up * 0.2
+	local upperArm = limbRotation(upperStart:Lerp(upperEnd, charge).Unit, up)
+	local foreArm = limbRotation(foreStart:Lerp(foreEnd, charge).Unit, up)
+	pose("RightShoulder", torso, upperArm)
+	pose("RightElbow", upperArm, foreArm)
+	pose("RightWrist", foreArm, foreArm)
 
+	-- ศีรษะหันไปทางเป้า (ลำตัวหันข้างอยู่)
+	pose("Neck", torso, CFrame.lookAt(Vector3.zero, aim))
+
+	-- ลูกธนูพาดสาย: หางลูกธนูถอยจากคันธนูตามแรงง้าง
 	if nockedArrow then
-		local center = handPosition + aim * ARROW_HALF_LENGTH
+		local tail = leftHand.Position - aim * (Pose.StringRest + Pose.DrawLength * charge)
+		local center = tail + aim * ARROW_HALF_LENGTH
 		nockedArrow:PivotTo(CFrame.lookAt(center, center + aim, up))
 	end
 end
@@ -161,9 +160,8 @@ function BowAim.Start(startTime)
 
 	nockedArrow = arrowTemplate:Clone()
 	nockedArrow.PrimaryPart.Anchored = true
+	nockedArrow:PivotTo(CFrame.new(0, -500, 0)) -- ซ่อนไว้จนกว่าเฟรมแรกจะจัดตำแหน่ง
 	nockedArrow.Parent = workspace:FindFirstChild("ArrowVisuals") or workspace
-	update()
-	setControlsActive(true)
 end
 
 function BowAim.Stop()
@@ -176,10 +174,9 @@ function BowAim.Stop()
 		nockedArrow:Destroy()
 		nockedArrow = nil
 	end
-	setControlsActive(false)
 end
 
--- หลังกล้องและการหมุนตัวละคร (CameraController ใช้ Camera + 1)
-RunService:BindToRenderStep("MD_BowAim", Enum.RenderPriority.Camera.Value + 2, update)
+-- Stepped ทำงานหลัง animation ของเฟรมนั้น จึงเขียนทับ Transform ของแขนได้
+RunService.Stepped:Connect(update)
 
 return BowAim
