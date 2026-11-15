@@ -76,6 +76,7 @@ Config.DefaultLoadout = {
 Config.Monsters = {
 	Goblin = {
 		Template = "Goblin",
+		Scale = 0.85,
 		HP = 60,
 		Damage = 10,
 		BaseDamage = 10,
@@ -88,6 +89,110 @@ Config.Monsters = {
 		AttackSound = "GoblinAttack",
 		DeathSound = "GoblinDeath",
 	},
+
+	-- ยิงธนูระยะ 40 studs, มีโอกาสดรอปลูกธนู (เริ่มเจอ stage 2)
+	SkeletonArcher = {
+		Template = "Skeleton",
+		Scale = 1,
+		HP = 50,
+		BaseDamage = 8,
+		WalkSpeed = 10,
+		Weapon = { Model = "Bow", Hand = "Left" },
+		Ranged = {
+			Kind = "Bow", -- ท่าเล็ง + ชนิดกระสุนที่ client แสดง
+			Damage = 8,
+			Range = 40,
+			BaseRange = 28, -- ระยะที่หยุดยิงฐาน
+			AimTime = 0.9, -- เล็งค้างก่อนยิง (ให้ผู้เล่นเห็นและหลบทัน)
+			Cooldown = 2.6,
+			Speed = 110,
+			Gravity = 20,
+			BodyYaw = 70,
+		},
+		Drop = { Chance = 0.35, Arrows = 3 },
+		DeathAnim = { Name = "GoblinDeath", Start = 0.7, Hold = 2.3, Speed = 1.6 },
+		AttackSound = "BowRelease",
+		DeathSound = "GoblinDeath",
+	},
+
+	-- ช้า ถึก ทุบแรง ตีฐานแรง (เริ่มเจอ stage 3)
+	OrcBrute = {
+		Template = "Orc",
+		Scale = 1.35,
+		HP = 250,
+		Damage = 25,
+		BaseDamage = 40,
+		WalkSpeed = 7,
+		AttackRange = 7,
+		AttackCooldown = 2.4,
+		AttackAnim = { Name = "SwordSlash3", Start = 0.5, Hit = 1.25, End = 1.8, Speed = 1.0 },
+		DeathAnim = { Name = "GoblinDeath", Start = 0.7, Hold = 2.3, Speed = 1.2 },
+		AttackSound = "GoblinAttack",
+		HitSound = "Slam",
+		DeathSound = "GoblinDeath",
+	},
+
+	-- ยิงทีละนัด ระยะ 60 studs บรรจุ 3 วิ (เริ่มเจอ stage 4)
+	GoblinMusketeer = {
+		Template = "Goblin",
+		Scale = 0.85,
+		HP = 70,
+		BaseDamage = 20,
+		WalkSpeed = 10,
+		Weapon = { Model = "Musket", Hand = "Right" },
+		Ranged = {
+			Kind = "Rifle",
+			Damage = 20,
+			Range = 60,
+			BaseRange = 34,
+			AimTime = 1.2,
+			Cooldown = 3,
+			Speed = 320,
+			Gravity = 0,
+			BodyYaw = 15,
+		},
+		DeathAnim = { Name = "GoblinDeath", Start = 0.7, Hold = 2.3, Speed = 1.6 },
+		AttackSound = "MusketShot",
+		DeathSound = "GoblinDeath",
+	},
+
+	-- Boss: wave 5 ทุก stage — HP x จำนวนผู้เล่น, แข็งขึ้นตาม stage
+	-- ฟันกวาดเป็นวง + เรียกลูกน้อง, เลือกตีคนที่ทำดาเมจใส่ตัวเองมากที่สุด
+	OrcWarlord = {
+		Template = "Orc",
+		Scale = 2.1,
+		Boss = true,
+		HP = 1500,
+		StageHPScale = 0.25, -- +25% ต่อ stage
+		StageDamageScale = 0.15,
+		Damage = 30,
+		BaseDamage = 60,
+		WalkSpeed = 9,
+		AttackRange = 11,
+		AttackCooldown = 3,
+		Sweep = { Radius = 14, ArcDegrees = 220 },
+		Summon = { Interval = 18, Kind = "Goblin", Count = 4 },
+		Weapon = { Model = "Sword", Hand = "Right", Scale = 2.2 },
+		AttackAnim = { Name = "SwordSlash2", Start = 0.4, Hit = 0.8, End = 1.2, Speed = 0.6 },
+		DeathAnim = { Name = "GoblinDeath", Start = 0.7, Hold = 2.3, Speed = 0.9 },
+		AttackSound = "BossRoar",
+		HitSound = "Slam",
+		DeathSound = "BossRoar",
+	},
+}
+
+-- ล้ม & ชุบ (GDD ข้อ 8)
+Config.Downed = {
+	WalkSpeed = 3, -- คลานช้า ๆ
+	ReviveTime = 3, -- กดค้าง E
+	ReviveRange = 7,
+	ReviveHPFraction = 0.3,
+	CrawlAnim = "Crawl",
+}
+
+Config.Pickup = {
+	Range = 5,
+	Lifetime = 25,
 }
 
 Config.AI = {
@@ -101,14 +206,44 @@ Config.Waves = {
 	StartDelay = 8,
 	BreakTime = 15,
 	SpawnInterval = 1.2,
-	ResultTime = 10,
+	ResultTime = 12,
+	-- จำนวนต่อ wave สำหรับทีม 3 คน (คูณ PlayerScale ตามจำนวนผู้เล่น; Boss มี 1 ตัวเสมอ)
+	-- wave 5 ของทุก stage มี Boss
 	Stages = {
 		[1] = {
 			{ Goblin = 8 },
 			{ Goblin = 12 },
 			{ Goblin = 16 },
 			{ Goblin = 20 },
-			{ Goblin = 24 },
+			{ OrcWarlord = 1, Goblin = 8 },
+		},
+		[2] = {
+			{ Goblin = 10, SkeletonArcher = 2 },
+			{ Goblin = 12, SkeletonArcher = 4 },
+			{ Goblin = 14, SkeletonArcher = 6 },
+			{ Goblin = 16, SkeletonArcher = 8 },
+			{ OrcWarlord = 1, Goblin = 8, SkeletonArcher = 4 },
+		},
+		[3] = {
+			{ Goblin = 10, SkeletonArcher = 4, OrcBrute = 2 },
+			{ Goblin = 12, SkeletonArcher = 4, OrcBrute = 2 },
+			{ Goblin = 12, SkeletonArcher = 6, OrcBrute = 4 },
+			{ Goblin = 14, SkeletonArcher = 6, OrcBrute = 4 },
+			{ OrcWarlord = 1, Goblin = 8, SkeletonArcher = 4, OrcBrute = 2 },
+		},
+		[4] = {
+			{ Goblin = 10, SkeletonArcher = 4, OrcBrute = 2, GoblinMusketeer = 2 },
+			{ Goblin = 12, SkeletonArcher = 4, OrcBrute = 2, GoblinMusketeer = 4 },
+			{ Goblin = 12, SkeletonArcher = 6, OrcBrute = 4, GoblinMusketeer = 4 },
+			{ Goblin = 14, SkeletonArcher = 6, OrcBrute = 4, GoblinMusketeer = 6 },
+			{ OrcWarlord = 1, Goblin = 8, SkeletonArcher = 4, OrcBrute = 2, GoblinMusketeer = 4 },
+		},
+		[5] = {
+			{ Goblin = 14, SkeletonArcher = 6, OrcBrute = 2, GoblinMusketeer = 4 },
+			{ Goblin = 16, SkeletonArcher = 6, OrcBrute = 4, GoblinMusketeer = 4 },
+			{ Goblin = 16, SkeletonArcher = 8, OrcBrute = 4, GoblinMusketeer = 6 },
+			{ Goblin = 18, SkeletonArcher = 8, OrcBrute = 6, GoblinMusketeer = 6 },
+			{ OrcWarlord = 1, Goblin = 10, SkeletonArcher = 6, OrcBrute = 4, GoblinMusketeer = 6 },
 		},
 	},
 }

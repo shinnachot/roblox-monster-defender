@@ -17,6 +17,7 @@ local CameraController = require(script:WaitForChild("CameraController"))
 local Hud = require(script:WaitForChild("Hud"))
 local BowAim = require(script:WaitForChild("BowAim"))
 local LegBlend = require(script:WaitForChild("LegBlend"))
+require(script:WaitForChild("MonsterPose")) -- ท่าเล็งของ monster ยิงไกล (ทำงานเอง)
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -24,7 +25,10 @@ local camera = workspace.CurrentCamera
 local SwordCfg = Config.Weapons.Sword
 local BowCfg = Config.Weapons.Bow
 local RollCfg = Config.Roll
-local TRACK_NAMES = { "SwordSlash1", "SwordSlash2", "SwordSlash3", RollCfg.Anim.Name }
+local CRAWL = Config.Downed.CrawlAnim
+local TRACK_NAMES = { "SwordSlash1", "SwordSlash2", "SwordSlash3", RollCfg.Anim.Name, CRAWL }
+-- คลิปที่มี root motion ในตัว: ตัดการเคลื่อนที่แนวราบออก (ระยะจริงคุมด้วยการเคลื่อนที่ของตัวละคร)
+local ROOT_MOTION_TRACKS = { RollCfg.Anim.Name, CRAWL }
 
 -- สถานะตัวละครปัจจุบัน
 local char, hum, root, rootJoint
@@ -41,9 +45,10 @@ local drawStart = nil
 local rolling = false
 local nextRollAt = 0
 local defaultWalkSpeed = 16
+local downed = false -- ล้มอยู่: คลานได้อย่างเดียว โจมตี/กลิ้ง/สลับอาวุธไม่ได้
 
 local function isAlive()
-	return char ~= nil and char.Parent ~= nil and hum ~= nil and hum.Health > 0
+	return char ~= nil and char.Parent ~= nil and hum ~= nil and hum.Health > 0 and not downed
 end
 
 -- เล่นเฉพาะช่วง [startTime, endTime] ของคลิปด้วยความเร็ว speed
@@ -202,12 +207,39 @@ end
 -- คลิปกลิ้งมี root motion ในตัว (ตัวละครพุ่งไปข้างหน้าในคลิป) — ตัดการเคลื่อนที่แนวราบออก
 -- เพราะระยะกลิ้งจริงคุมด้วย LinearVelocity ให้ได้ 14 studs ตาม GDD
 RunService.Stepped:Connect(function()
-	local rollTrack = tracks[RollCfg.Anim.Name]
-	if rootJoint and rollTrack and rollTrack.IsPlaying then
-		local transform = rootJoint.Transform
-		rootJoint.Transform = transform.Rotation + Vector3.new(0, transform.Position.Y, 0)
+	if not rootJoint then
+		return
+	end
+	for _, name in ROOT_MOTION_TRACKS do
+		local track = tracks[name]
+		if track and track.IsPlaying then
+			local transform = rootJoint.Transform
+			rootJoint.Transform = transform.Rotation + Vector3.new(0, transform.Position.Y, 0)
+			break
+		end
 	end
 end)
+
+---------------------------------------------------------------- ล้ม & ชุบ
+
+-- server ตั้ง attribute Downed บน Player: ล้ม = เล่นท่าคลาน (ค้างท่าตอนหยุดนิ่ง)
+local function applyDowned()
+	downed = player:GetAttribute("Downed") == true
+	local crawl = tracks[CRAWL]
+	if downed then
+		mouseDown = false
+		cancelDraw(true)
+		if crawl and not crawl.IsPlaying then
+			crawl:Play(0.3, 1, 0)
+		end
+	elseif crawl then
+		crawl:Stop(0.3)
+	end
+	if hum then
+		hum.WalkSpeed = downed and Config.Downed.WalkSpeed or defaultWalkSpeed
+	end
+end
+player:GetAttributeChangedSignal("Downed"):Connect(applyDowned)
 
 ---------------------------------------------------------------- สลับอาวุธ / input
 
@@ -237,6 +269,13 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		end
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		tryRoll()
+	elseif input.KeyCode == Enum.KeyCode.E then
+		-- กดค้าง E ใกล้เพื่อนที่ล้มเพื่อชุบ (server นับเวลาและตรวจระยะ)
+		local target = Hud.GetReviveCandidate()
+		if target and isAlive() then
+			cancelDraw(true)
+			Remotes.ReviveStart:FireServer(target)
+		end
 	elseif SLOT_KEYS[input.KeyCode] then
 		local weaponName = Config.DefaultLoadout.Weapons[SLOT_KEYS[input.KeyCode]]
 		if weaponName then
@@ -249,12 +288,20 @@ UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		mouseDown = false
 		releaseDraw()
+	elseif input.KeyCode == Enum.KeyCode.E then
+		Remotes.ReviveCancel:FireServer()
 	end
 end)
 
 RunService.RenderStepped:Connect(function()
 	if mouseDown and equipped == "Sword" then
 		trySwing() -- กดค้าง = ฟันต่อคอมโบ
+	end
+	if downed and hum then
+		local crawl = tracks[CRAWL]
+		if crawl then
+			crawl:AdjustSpeed(hum.MoveDirection.Magnitude > 0.1 and 1 or 0)
+		end
 	end
 	if drawStart then
 		Hud.SetCharge(math.clamp((os.clock() - drawStart) / BowCfg.ChargeTime, 0, 1))
@@ -275,9 +322,10 @@ Remotes.DamageDealt.OnClientEvent:Connect(function(position, amount, isHead, kin
 	end
 end)
 
-Remotes.ArrowFired.OnClientEvent:Connect(function(userId, origin, velocity, gravity)
+-- userId 0 = กระสุนของ monster
+Remotes.ArrowFired.OnClientEvent:Connect(function(userId, origin, velocity, gravity, kind)
 	if userId ~= player.UserId then
-		ArrowVisuals.Spawn(origin, velocity, gravity)
+		ArrowVisuals.Spawn(origin, velocity, gravity, kind, userId == 0)
 	end
 end)
 
@@ -305,7 +353,7 @@ local function onCharacterAdded(newChar)
 	for _, name in TRACK_NAMES do
 		local track = animator:LoadAnimation(Assets.Animations:WaitForChild(name))
 		track.Priority = Enum.AnimationPriority.Action
-		track.Looped = false
+		track.Looped = name == CRAWL
 		tracks[name] = track
 	end
 
@@ -321,6 +369,7 @@ local function onCharacterAdded(newChar)
 	comboIndex = 0
 	Hud.SetCharge(nil)
 	Hud.SetEquipped(equipped)
+	applyDowned()
 	CameraController.SetCharacter(newChar)
 	BowAim.SetCharacter(newChar)
 	-- ให้ขาเดินต่อระหว่างฟันดาบขณะเคลื่อนที่

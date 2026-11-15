@@ -1,6 +1,11 @@
--- WaveService: วงจรแมตช์ (นับถอยหลัง -> wave -> พัก -> ... -> ชนะ/แพ้)
--- สถานะแมตช์เผยแพร่เป็น attribute บน workspace: MatchPhase, Wave, WaveCount, PhaseEndsAt, MonstersLeft
--- เฟส 1: เล่น stage 1 (Goblin ล้วน) วนซ้ำใน place เดียว — Boss/stage อื่น/ล้ม-ชุบ มาในเฟส 2
+-- WaveService: วงจรแมตช์ — 1 แมตช์ = 1 stage = 5 wave (wave 5 มี Boss)
+-- สถานะแมตช์เผยแพร่เป็น attribute บน workspace:
+--   MatchPhase (Waiting/Countdown/Wave/Break/Victory/Defeat), Stage, StageCount, Wave, WaveCount,
+--   PhaseEndsAt, MonstersLeft, DefeatReason (Base/Team), MatchTime, NextStage
+-- แพ้เมื่อ HP ฐาน = 0 หรือผู้เล่นทั้งทีมล้มพร้อมกัน (GDD ข้อ 6)
+-- เฟส 2 ยังไม่มี lobby: ชนะ -> ไป stage ถัดไป, แพ้ -> เล่น stage เดิมซ้ำ
+-- ทดสอบ: ตั้ง attribute workspace.DebugStage = เลข stage เพื่อเริ่มแมตช์ถัดไปที่ stage นั้น,
+--          workspace.DebugWave = เลข wave เพื่อข้ามไปเริ่มที่ wave นั้น
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -20,8 +25,19 @@ local function setPhase(phase, duration)
 	workspace:SetAttribute("MatchPhase", phase)
 end
 
+-- คืนเหตุผลที่แพ้ ("Base" / "Team") หรือ nil ถ้ายังไม่แพ้
+local function defeatReason()
+	if BaseService.GetHP() <= 0 then
+		return "Base"
+	end
+	if PlayerService.AllDowned() then
+		return "Team"
+	end
+	return nil
+end
+
 local function lost()
-	return BaseService.GetHP() <= 0
+	return defeatReason() ~= nil
 end
 
 local function waitSeconds(seconds)
@@ -46,13 +62,30 @@ local function spawnPosition()
 	return Vector3.new(spawnPart.Position.X, 3.5, spawnPart.Position.Z) + offset
 end
 
-local function runWave(waveDef, scale)
-	local queue = {}
+-- ลำดับการ spawn ของ wave: Boss ออกก่อน ที่เหลือสลับกัน
+local function buildQueue(waveDef, scale)
+	local bosses, others = {}, {}
 	for kind, count in waveDef do
-		for _ = 1, math.max(1, math.ceil(count * scale)) do
-			table.insert(queue, kind)
+		local cfg = Config.Monsters[kind]
+		if cfg.Boss then
+			for _ = 1, count do
+				table.insert(bosses, kind)
+			end
+		else
+			for _ = 1, math.max(1, math.ceil(count * scale)) do
+				table.insert(others, kind)
+			end
 		end
 	end
+	for index = #others, 2, -1 do
+		local swap = rng:NextInteger(1, index)
+		others[index], others[swap] = others[swap], others[index]
+	end
+	return table.move(others, 1, #others, #bosses + 1, bosses)
+end
+
+local function runWave(waveDef, scale, options)
+	local queue = buildQueue(waveDef, scale)
 	local remainingToSpawn = #queue
 	workspace:SetAttribute("MonstersLeft", remainingToSpawn)
 
@@ -60,7 +93,7 @@ local function runWave(waveDef, scale)
 		if lost() then
 			return
 		end
-		MonsterService.Spawn(kind, spawnPosition())
+		MonsterService.Spawn(kind, spawnPosition(), options)
 		remainingToSpawn -= 1
 		workspace:SetAttribute("MonstersLeft", remainingToSpawn + MonsterService.Count())
 		waitSeconds(Config.Waves.SpawnInterval)
@@ -72,15 +105,18 @@ local function runWave(waveDef, scale)
 	workspace:SetAttribute("MonstersLeft", MonsterService.Count())
 end
 
+-- คืน true ถ้าชนะ
 local function runMatch(stage)
 	local waves = Config.Waves.Stages[stage]
 	BaseService.Reset()
 	MonsterService.ClearAll()
 	PlayerService.ResetMatch()
 	workspace:SetAttribute("Stage", stage)
+	workspace:SetAttribute("StageCount", #Config.Waves.Stages)
 	workspace:SetAttribute("WaveCount", #waves)
 	workspace:SetAttribute("Wave", 1)
 	workspace:SetAttribute("MonstersLeft", 0)
+	workspace:SetAttribute("DefeatReason", nil)
 
 	setPhase("Waiting")
 	while not anyPlayerReady() do
@@ -90,34 +126,59 @@ local function runMatch(stage)
 
 	local playerCount = math.clamp(#Players:GetPlayers(), 1, #Config.Waves.PlayerScale)
 	local scale = Config.Waves.PlayerScale[playerCount]
+	local options = { Stage = stage, PlayerCount = playerCount }
 
 	setPhase("Countdown", Config.Waves.StartDelay)
 	waitSeconds(Config.Waves.StartDelay)
+	local startedAt = os.clock()
 
-	for index, waveDef in waves do
+	local firstWave = math.clamp(workspace:GetAttribute("DebugWave") or 1, 1, #waves)
+	workspace:SetAttribute("DebugWave", nil)
+
+	for index = firstWave, #waves do
 		workspace:SetAttribute("Wave", index)
 		setPhase("Wave")
-		runWave(waveDef, scale)
+		runWave(waves[index], scale, options)
 		if lost() then
 			break
 		end
+		-- จบ wave: คนที่ล้มและไม่มีใครชุบ respawn ที่ฐาน
+		PlayerService.RespawnDowned()
 		if index < #waves then
 			setPhase("Break", Config.Waves.BreakTime)
 			waitSeconds(Config.Waves.BreakTime)
+			if lost() then
+				break
+			end
 		end
 	end
 
-	setPhase(lost() and "Defeat" or "Victory", Config.Waves.ResultTime)
+	local reason = defeatReason()
+	local won = reason == nil
+	local nextStage = won and (stage % #Config.Waves.Stages + 1) or stage
+	workspace:SetAttribute("DefeatReason", reason)
+	workspace:SetAttribute("MatchTime", math.floor(os.clock() - startedAt))
+	workspace:SetAttribute("NextStage", nextStage)
+	setPhase(won and "Victory" or "Defeat", Config.Waves.ResultTime)
 	MonsterService.ClearAll()
 	task.wait(Config.Waves.ResultTime)
+	return nextStage
 end
 
 function WaveService.Start()
 	task.spawn(function()
+		local stage = 1
 		while true do
-			local ok, err = pcall(runMatch, 1)
-			if not ok then
-				warn("[WaveService] match error:", err)
+			local debugStage = workspace:GetAttribute("DebugStage")
+			if typeof(debugStage) == "number" and Config.Waves.Stages[debugStage] then
+				stage = debugStage
+				workspace:SetAttribute("DebugStage", nil)
+			end
+			local ok, result = pcall(runMatch, stage)
+			if ok then
+				stage = result
+			else
+				warn("[WaveService] match error:", result)
 				task.wait(3)
 			end
 		end

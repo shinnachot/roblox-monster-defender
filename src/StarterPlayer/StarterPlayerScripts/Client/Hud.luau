@@ -24,7 +24,11 @@ local gui
 local waveLabel, statusLabel, baseFill, baseLabel
 local hpFill, hpLabel
 local chargeBar, chargeFill
-local banner, bannerTitle, bannerSub
+local banner, bannerTitle, bannerSub, bannerStats
+local bossBack, bossFill, bossLabel
+local downedFrame, downedSub
+local promptFrame, promptLabel, promptFill
+local reviveCandidate -- เพื่อนที่ล้มอยู่ใกล้ ๆ ที่ชุบได้ตอนนี้
 local rollOverlay, rollLabel
 local hurtEdges = {}
 local slots = {}
@@ -82,10 +86,12 @@ function Hud.Init()
 	gui = make("ScreenGui", { Name = "Hud", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 5 }, player:WaitForChild("PlayerGui"))
 
 	-- บน: wave + สถานะ + HP ฐาน
-	local top = make("Frame", { Size = UDim2.fromOffset(420, 100), Position = UDim2.new(0.5, 0, 0, 44), AnchorPoint = Vector2.new(0.5, 0), BackgroundTransparency = 1 }, gui)
+	local top = make("Frame", { Size = UDim2.fromOffset(420, 130), Position = UDim2.new(0.5, 0, 0, 44), AnchorPoint = Vector2.new(0.5, 0), BackgroundTransparency = 1 }, gui)
 	waveLabel = text({ Size = UDim2.new(1, 0, 0, 32), Text = "", TextSize = 28 }, top)
 	statusLabel = text({ Size = UDim2.new(1, 0, 0, 24), Position = UDim2.fromOffset(0, 32), Text = "", TextSize = 19, TextColor3 = Color3.fromRGB(230, 230, 230) }, top)
 	baseFill, baseLabel = bar(top, UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 62), Vector2.zero, Color3.fromRGB(70, 170, 255))
+	bossFill, bossLabel, bossBack = bar(top, UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 90), Vector2.zero, Color3.fromRGB(190, 45, 45))
+	bossBack.Visible = false
 
 	-- ล่างซ้าย: HP ผู้เล่น
 	hpFill, hpLabel = bar(gui, UDim2.fromOffset(260, 24), UDim2.new(0, 24, 1, -24), Vector2.new(0, 1), Color3.fromRGB(210, 60, 55))
@@ -112,9 +118,26 @@ function Hud.Init()
 	corner(chargeFill, 3)
 
 	-- ป้ายผลแมตช์
-	banner = make("Frame", { Size = UDim2.new(1, 0, 0, 150), Position = UDim2.fromScale(0.5, 0.32), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, BorderSizePixel = 0, Visible = false }, gui)
+	banner = make("Frame", { Size = UDim2.new(1, 0, 0, 270), Position = UDim2.fromScale(0.5, 0.4), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, BorderSizePixel = 0, Visible = false }, gui)
 	bannerTitle = text({ Size = UDim2.new(1, 0, 0, 84), Position = UDim2.fromOffset(0, 14), Text = "", TextSize = 68 }, banner)
 	bannerSub = text({ Size = UDim2.new(1, 0, 0, 32), Position = UDim2.fromOffset(0, 102), Text = "", TextSize = 22, TextColor3 = Color3.fromRGB(230, 230, 230) }, banner)
+	-- สรุปผล: สถิติของผู้เล่นแต่ละคน + นับถอยหลัง
+	bannerStats = text({ Size = UDim2.new(1, 0, 0, 120), Position = UDim2.fromOffset(0, 140), Text = "", TextSize = 20, TextYAlignment = Enum.TextYAlignment.Top, TextColor3 = Color3.fromRGB(235, 235, 235) }, banner)
+
+	-- ล้ม: ข้อความกลางจอส่วนล่าง
+	downedFrame = make("Frame", { Size = UDim2.fromOffset(520, 80), Position = UDim2.fromScale(0.5, 0.7), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = Color3.fromRGB(60, 0, 0), BackgroundTransparency = 0.35, BorderSizePixel = 0, Visible = false }, gui)
+	corner(downedFrame, 10)
+	text({ Size = UDim2.new(1, 0, 0, 40), Position = UDim2.fromOffset(0, 6), Text = "คุณล้มแล้ว", TextSize = 32, TextColor3 = Color3.fromRGB(255, 110, 100) }, downedFrame)
+	downedSub = text({ Size = UDim2.new(1, 0, 0, 26), Position = UDim2.fromOffset(0, 46), Text = "", TextSize = 19, TextColor3 = Color3.fromRGB(235, 235, 235) }, downedFrame)
+
+	-- ชุบเพื่อน: ข้อความ + แถบความคืบหน้า
+	promptFrame = make("Frame", { Size = UDim2.fromOffset(360, 50), Position = UDim2.new(0.5, 0, 1, -110), AnchorPoint = Vector2.new(0.5, 1), BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0.25, BorderSizePixel = 0, Visible = false }, gui)
+	corner(promptFrame, 8)
+	promptLabel = text({ Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, 4), Text = "", TextSize = 20 }, promptFrame)
+	local promptBack = make("Frame", { Size = UDim2.new(1, -24, 0, 8), Position = UDim2.fromOffset(12, 36), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.4, BorderSizePixel = 0 }, promptFrame)
+	corner(promptBack, 4)
+	promptFill = make("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromRGB(110, 220, 130), BorderSizePixel = 0 }, promptBack)
+	corner(promptFill, 4)
 
 	-- ขอบจอแดงวาบตอนโดนตี (ไม่มีตัวเลข)
 	local edges = {
@@ -149,7 +172,8 @@ function Hud.Refresh()
 	local phase = workspace:GetAttribute("MatchPhase") or "Waiting"
 	local wave = workspace:GetAttribute("Wave") or 1
 	local waveCount = workspace:GetAttribute("WaveCount") or 5
-	waveLabel.Text = string.format("คลื่นที่ %d / %d", wave, waveCount)
+	local stage = workspace:GetAttribute("Stage") or 1
+	waveLabel.Text = string.format("ด่าน %d — คลื่นที่ %d / %d", stage, wave, waveCount)
 
 	local showBanner = false
 	if phase == "Countdown" then
@@ -161,15 +185,32 @@ function Hud.Refresh()
 	elseif phase == "Victory" or phase == "Defeat" then
 		showBanner = true
 		statusLabel.Text = ""
+		local nextStage = workspace:GetAttribute("NextStage") or stage
+		local matchTime = workspace:GetAttribute("MatchTime") or 0
+		local footer
 		if phase == "Victory" then
 			bannerTitle.Text = "ชนะ!"
 			bannerTitle.TextColor3 = ACCENT
-			bannerSub.Text = string.format("ป้องกันคริสตัลสำเร็จ — เริ่มใหม่ใน %d วิ", secondsLeft())
+			bannerSub.Text = string.format("ป้องกันคริสตัลสำเร็จ — ด่าน %d", stage)
+			if nextStage > stage then
+				footer = string.format("ไปด่าน %d ใน %d วิ", nextStage, secondsLeft())
+			else
+				footer = string.format("ผ่านครบทุกด่านแล้ว — กลับไปด่าน %d ใน %d วิ", nextStage, secondsLeft())
+			end
 		else
 			bannerTitle.Text = "แพ้..."
 			bannerTitle.TextColor3 = Color3.fromRGB(235, 70, 60)
-			bannerSub.Text = string.format("คริสตัลถูกทำลาย — เริ่มใหม่ใน %d วิ", secondsLeft())
+			local reason = workspace:GetAttribute("DefeatReason")
+			bannerSub.Text = reason == "Team" and "ทั้งทีมล้มพร้อมกัน" or "คริสตัลถูกทำลาย"
+			footer = string.format("เล่นด่าน %d อีกครั้งใน %d วิ", nextStage, secondsLeft())
 		end
+		local lines = { string.format("เวลา %d:%02d", matchTime // 60, matchTime % 60) }
+		for _, other in Players:GetPlayers() do
+			table.insert(lines, string.format("%s   สังหาร %d   ดาเมจ %d   ล้ม %d ครั้ง", other.DisplayName,
+				other:GetAttribute("StatKills") or 0, other:GetAttribute("StatDamage") or 0, other:GetAttribute("StatDowns") or 0))
+		end
+		table.insert(lines, footer)
+		bannerStats.Text = table.concat(lines, "\n")
 	else
 		statusLabel.Text = "รอผู้เล่น..."
 	end
@@ -181,15 +222,59 @@ function Hud.Refresh()
 	baseFill.Size = UDim2.fromScale(math.clamp(baseHP / baseMax, 0, 1), 1)
 	baseLabel.Text = string.format("คริสตัล %d / %d", baseHP, baseMax)
 
+	local bossHP = workspace:GetAttribute("BossHP")
+	local bossMax = workspace:GetAttribute("BossMaxHP")
+	bossBack.Visible = bossHP ~= nil and bossMax ~= nil
+	if bossBack.Visible then
+		bossFill.Size = UDim2.fromScale(math.clamp(bossHP / bossMax, 0, 1), 1)
+		bossLabel.Text = string.format("Orc Warlord %d / %d", bossHP, bossMax)
+	end
+
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	local hp = humanoid and math.max(0, humanoid.Health) or 0
+	local isDowned = player:GetAttribute("Downed") == true
+	local hp = (humanoid and not isDowned) and math.max(0, humanoid.Health) or 0
 	local maxHP = humanoid and humanoid.MaxHealth or Config.Player.MaxHP
 	hpFill.Size = UDim2.fromScale(math.clamp(hp / maxHP, 0, 1), 1)
 	hpLabel.Text = string.format("HP %d / %d", math.ceil(hp), maxHP)
 
 	if slots.Bow then
 		slots.Bow.Ammo.Text = string.format("ลูกธนู %d", player:GetAttribute("Arrows") or 0)
+	end
+
+	-- ล้ม: บอกสถานะ + ความคืบหน้าถ้ามีคนกำลังชุบ
+	local now = workspace:GetServerTimeNow()
+	downedFrame.Visible = isDowned and not showBanner
+	if isDowned then
+		local endsAt = player:GetAttribute("ReviveEndsAt")
+		if endsAt then
+			downedSub.Text = string.format("เพื่อนกำลังชุบ... %.1f วิ", math.max(0, endsAt - now))
+		else
+			downedSub.Text = "คลานได้ช้า ๆ — รอเพื่อนมาชุบ หรือรอจนจบคลื่นนี้"
+		end
+	end
+
+	-- เพื่อนที่ล้มอยู่ใกล้ที่สุดในระยะชุบ
+	reviveCandidate = nil
+	local myRoot = character and character:FindFirstChild("HumanoidRootPart")
+	if myRoot and not isDowned and hp > 0 then
+		local bestDistance = Config.Downed.ReviveRange
+		for _, other in Players:GetPlayers() do
+			local otherRoot = other ~= player and other:GetAttribute("Downed") == true and other.Character and other.Character:FindFirstChild("HumanoidRootPart")
+			if otherRoot then
+				local distance = (otherRoot.Position - myRoot.Position).Magnitude
+				if distance <= bestDistance then
+					reviveCandidate, bestDistance = other, distance
+				end
+			end
+		end
+	end
+	promptFrame.Visible = reviveCandidate ~= nil
+	if reviveCandidate then
+		local endsAt = reviveCandidate:GetAttribute("ReviveEndsAt")
+		promptLabel.Text = string.format("กดค้าง E เพื่อชุบ %s", reviveCandidate.DisplayName)
+		local progress = endsAt and math.clamp(1 - (endsAt - now) / Config.Downed.ReviveTime, 0, 1) or 0
+		promptFill.Size = UDim2.fromScale(progress, 1)
 	end
 
 	local remaining = rollReadyAt - os.clock()
@@ -200,6 +285,11 @@ function Hud.Refresh()
 		rollOverlay.Size = UDim2.fromScale(1, 0)
 		rollLabel.Text = "กลิ้งหลบ"
 	end
+end
+
+-- เพื่อนที่กดชุบได้ตอนนี้ (nil ถ้าไม่มี)
+function Hud.GetReviveCandidate()
+	return reviveCandidate
 end
 
 function Hud.SetEquipped(weaponName)

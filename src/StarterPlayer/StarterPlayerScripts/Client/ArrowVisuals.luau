@@ -42,9 +42,27 @@ folder.Parent = workspace
 
 local flying = {}
 
-function ArrowVisuals.Spawn(origin, velocity, gravity)
-	local model = template:Clone()
-	model:ScaleTo(VISUAL_SCALE)
+-- kind: "Arrow" (ค่าเริ่มต้น) หรือ "Bullet" (กระสุนปืนคาบศิลา)
+-- fromMonster: กระสุนของ monster ทะลุ monster ด้วยกัน แต่ปัก/หยุดที่ผู้เล่น
+function ArrowVisuals.Spawn(origin, velocity, gravity, kind, fromMonster)
+	local model
+	if kind == "Bullet" then
+		model = Instance.new("Model")
+		local ball = Instance.new("Part")
+		ball.Name = "Root"
+		ball.Shape = Enum.PartType.Ball
+		ball.Size = Vector3.new(0.4, 0.4, 0.4)
+		ball.Material = Enum.Material.Neon
+		ball.Color = Color3.fromRGB(255, 210, 120)
+		ball.CanCollide = false
+		ball.CanQuery = false
+		ball.CanTouch = false
+		ball.Parent = model
+		model.PrimaryPart = ball
+	else
+		model = template:Clone()
+		model:ScaleTo(VISUAL_SCALE)
+	end
 	model.PrimaryPart.Anchored = true
 	local trail = addTrail(model.PrimaryPart)
 	model:PivotTo(CFrame.lookAt(origin, origin + velocity))
@@ -53,15 +71,21 @@ function ArrowVisuals.Spawn(origin, velocity, gravity)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	local ignore = { folder }
-	for _, other in Players:GetPlayers() do
-		if other.Character then
-			table.insert(ignore, other.Character)
+	if fromMonster then
+		table.insert(ignore, workspace:FindFirstChild("Monsters"))
+		table.insert(ignore, workspace:FindFirstChild("Pickups"))
+	else
+		for _, other in Players:GetPlayers() do
+			if other.Character then
+				table.insert(ignore, other.Character) -- ไม่มี friendly fire
+			end
 		end
 	end
 	params.FilterDescendantsInstances = ignore
 
 	table.insert(flying, {
 		Model = model,
+		Kind = kind,
 		Trail = trail,
 		Position = origin,
 		Velocity = velocity,
@@ -79,7 +103,7 @@ RunService.RenderStepped:Connect(function(dt)
 		local result = workspace:Raycast(arrow.Position, step, arrow.Params)
 		if result or arrow.Elapsed > MAX_FLIGHT_TIME then
 			table.remove(flying, index)
-			if result then
+			if result and arrow.Kind ~= "Bullet" then
 				-- ปักคาจุดที่โดน (หัวลูกธนูฝังเข้าไปเล็กน้อย)
 				local direction = arrow.Velocity.Unit
 				arrow.Model:PivotTo(CFrame.lookAt(result.Position - direction * (HALF_LENGTH - 0.5), result.Position))
