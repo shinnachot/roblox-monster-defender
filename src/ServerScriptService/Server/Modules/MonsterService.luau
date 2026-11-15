@@ -147,6 +147,7 @@ function MonsterService.Spawn(kind, position, options)
 		Cfg = cfg,
 		HP = maxHP,
 		MaxHP = maxHP,
+		Radius = root.Size.X / 2, -- รัศมีลำตัวโดยประมาณ (ตัวใหญ่ตีโดนได้จากไกลกว่า)
 		DamageScale = damageScale,
 		Stage = stage,
 		PlayerCount = playerCount,

@@ -168,7 +168,7 @@ Config.Monsters = {
 		Damage = 30,
 		BaseDamage = 60,
 		WalkSpeed = 9,
-		AttackRange = 11,
+		AttackRange = 9,
 		AttackCooldown = 3,
 		Sweep = { Radius = 14, ArcDegrees = 220 },
 		Summon = { Interval = 18, Kind = "Goblin", Count = 4 },

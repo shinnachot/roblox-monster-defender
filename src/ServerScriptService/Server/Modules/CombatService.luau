@@ -41,7 +41,9 @@ local function swordHit(player, damage)
 		local offset = m.Root.Position - origin
 		local to = flat(offset)
 		local dist = to.Magnitude
-		if dist <= cfg.Range and math.abs(offset.Y) <= 6 and (dist < 2.5 or to.Unit:Dot(look) >= minDot) then
+		-- ระยะดาบวัดถึงผิวลำตัว (monster ตัวใหญ่มีรัศมีมากกว่า)
+		local reach = cfg.Range - 1 + (m.Radius or 1)
+		if dist <= reach and math.abs(offset.Y) <= 8 and (dist < 2.5 + (m.Radius or 1) or to.Unit:Dot(look) >= minDot) then
 			table.insert(hits, model)
 		end
 	end
