@@ -22,6 +22,7 @@ local MeleeFx = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("M
 local SlashPose = require(script:WaitForChild("SlashPose"))
 local TouchControls = require(script:WaitForChild("TouchControls")) -- ปุ่มบนจอสัมผัส (มือถือ)
 local LobbyUi = require(script:WaitForChild("LobbyUi"))
+local LoadoutUi = require(script:WaitForChild("LoadoutUi"))
 require(script:WaitForChild("MonsterPose")) -- ท่าเล็งของ monster ยิงไกล (ทำงานเอง)
 
 local player = Players.LocalPlayer
@@ -42,8 +43,9 @@ local tracks = {}
 local segmentToken = {}
 
 -- สถานะการต่อสู้
-local equipped = Config.DefaultLoadout.Weapons[1]
+local equipped = player:GetAttribute("Equipped") or "Sword" -- server ตั้งตาม loadout
 local mouseDown = false
+local hasShieldFor -- ประกาศล่วงหน้า (ใช้ก่อนนิยาม)
 local rightMouseDown = false
 local blocking = false -- ยกโล่อยู่ (ถือดาบ + กดค้างคลิกขวา)
 local comboIndex = 0
@@ -182,7 +184,7 @@ local function stopBlock()
 end
 
 local function startBlock()
-	if blocking or rolling or not isAlive() or equipped ~= "Sword" or not ShieldCfg then
+	if blocking or rolling or not isAlive() or equipped ~= "Sword" or not ShieldCfg or not player:GetAttribute("HasShield") then
 		return
 	end
 	blocking = true
@@ -317,15 +319,25 @@ player:GetAttributeChangedSignal("Downed"):Connect(applyDowned)
 
 ---------------------------------------------------------------- สลับอาวุธ / input
 
+-- ปุ่มโล่บนจอสัมผัส: อาวุธนี้ถือโล่ได้ และใส่โล่ใน loadout
+hasShieldFor = function(weaponName)
+	local cfg = Config.Weapons[weaponName]
+	return cfg ~= nil and cfg.Shield ~= nil and player:GetAttribute("HasShield") == true
+end
+
 local function equip(weaponName)
-	if weaponName == equipped or rolling or not isAlive() then
+	if weaponName == "Potion" then
+		Remotes.UsePotion:FireServer() -- ช่องยา: แตะ/คลิกเพื่อดื่ม
+		return
+	end
+	if weaponName == equipped or rolling or not isAlive() or not table.find(Hud.GetWeapons(), weaponName) then
 		return
 	end
 	cancelDraw(true)
 	stopBlock()
 	equipped = weaponName
 	Hud.SetEquipped(weaponName)
-	TouchControls.SetEquipped(weaponName, Config.Weapons[weaponName].Shield ~= nil)
+	TouchControls.SetEquipped(weaponName, hasShieldFor(weaponName))
 	Remotes.Equip:FireServer(weaponName)
 end
 
@@ -368,6 +380,9 @@ end
 local SLOT_KEYS = {
 	[Enum.KeyCode.One] = 1,
 	[Enum.KeyCode.Two] = 2,
+	[Enum.KeyCode.Three] = 3,
+	[Enum.KeyCode.Four] = 4,
+	[Enum.KeyCode.Five] = 5,
 }
 
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -382,8 +397,10 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		tryRoll()
 	elseif input.KeyCode == Enum.KeyCode.E then
 		reviveDown()
+	elseif input.KeyCode == Enum.KeyCode.F then
+		Remotes.UsePotion:FireServer()
 	elseif SLOT_KEYS[input.KeyCode] then
-		local weaponName = Config.DefaultLoadout.Weapons[SLOT_KEYS[input.KeyCode]]
+		local weaponName = Hud.GetWeapons()[SLOT_KEYS[input.KeyCode]]
 		if weaponName then
 			equip(weaponName)
 		end
@@ -506,7 +523,7 @@ local function onCharacterAdded(newChar)
 	comboIndex = 0
 	Hud.SetCharge(nil)
 	Hud.SetEquipped(equipped)
-	TouchControls.SetEquipped(equipped, Config.Weapons[equipped].Shield ~= nil)
+	TouchControls.SetEquipped(equipped, hasShieldFor(equipped))
 	applyDowned()
 	CameraController.SetCharacter(newChar)
 	BowAim.SetCharacter(newChar)
@@ -529,6 +546,24 @@ task.spawn(function()
 end)
 
 Hud.OnSlotActivated = equip -- แตะช่องอาวุธเพื่อสลับ
+-- server เปลี่ยนอาวุธที่ถือตาม loadout ใหม่ (เช่น เอาดาบออก) -> ตามให้ตรง
+player:GetAttributeChangedSignal("Equipped"):Connect(function()
+	local serverWeapon = player:GetAttribute("Equipped")
+	if serverWeapon and serverWeapon ~= equipped and not table.find(Hud.GetWeapons(), equipped) then
+		cancelDraw(true)
+		stopBlock()
+		equipped = serverWeapon
+		Hud.SetEquipped(equipped)
+		TouchControls.SetEquipped(equipped, hasShieldFor(equipped))
+	end
+end)
+player:GetAttributeChangedSignal("HasShield"):Connect(function()
+	if not player:GetAttribute("HasShield") then
+		stopBlock()
+	end
+	TouchControls.SetEquipped(equipped, hasShieldFor(equipped))
+end)
+LobbyUi.OnOpenLoadout = LoadoutUi.Open
 Hud.Init({ Touch = TouchControls.IsTouchDevice() })
 task.spawn(LobbyUi.Init, { Touch = TouchControls.IsTouchDevice() })
 TouchControls.Init({

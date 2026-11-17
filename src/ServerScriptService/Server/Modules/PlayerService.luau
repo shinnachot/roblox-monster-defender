@@ -1,11 +1,14 @@
 -- PlayerService: สถานะผู้เล่นฝั่ง server (HP, เกราะ, อาวุธที่ถือ, โล่, ลูกธนู, i-frame, ล้ม/ชุบ, สถิติแมตช์)
 -- เกราะเผยแพร่เป็น attribute บน Player: Armor (ความทนทานที่เหลือ), MaxArmor, ArmorName
+-- ชุดอุปกรณ์จาก loadout (Kit, ดู Progression.BuildKit): attribute Weapons ("Sword,Bow" ตามลำดับปุ่ม 1-5),
+--   HasShield, Potions (ขวดที่เหลือ), Arrows — ใช้ชุดเริ่มต้นจนกว่าโปรไฟล์จะโหลด
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local MeleeFx = require(ReplicatedStorage.Shared.MeleeFx)
+local Progression = require(ReplicatedStorage.Shared.Progression)
 local Remotes = ReplicatedStorage.Remotes
 local Assets = ReplicatedStorage.Assets
 
@@ -29,6 +32,8 @@ local function newState()
 		Downed = false,
 		ReviveTarget = nil, -- Player ที่กำลังชุบอยู่
 		ReviveStart = 0,
+		Kit = Progression.BuildKit(Config.Loadout.Starter, {}),
+		NextPotion = 0,
 	}
 end
 
@@ -83,7 +88,7 @@ function PlayerService.SetBlocking(player, blocking)
 	blocking = blocking == true
 	if blocking then
 		local cfg = st.Equipped and Config.Weapons[st.Equipped]
-		if not cfg or not cfg.Shield or not PlayerService.GetCharacterParts(player) then
+		if not cfg or not cfg.Shield or not st.Kit.Shield or not PlayerService.GetCharacterParts(player) then
 			blocking = false
 		end
 	end
@@ -115,7 +120,7 @@ function PlayerService.Equip(player, weaponName)
 	if not st or typeof(weaponName) ~= "string" then
 		return
 	end
-	if not table.find(Config.DefaultLoadout.Weapons, weaponName) then
+	if not table.find(st.Kit.Weapons, weaponName) then
 		return -- ไม่ได้อยู่ใน loadout
 	end
 	local char = PlayerService.GetCharacterParts(player)
@@ -155,7 +160,7 @@ function PlayerService.Equip(player, weaponName)
 		MeleeFx.AddTrails(model, cfg) -- แสงตามอาวุธ (client เปิดช่วงฟาด)
 	end
 	model.Parent = char
-	if cfg.Shield then
+	if cfg.Shield and st.Kit.Shield then
 		attachShield(char, cfg.Shield)
 	end
 
@@ -211,7 +216,7 @@ local function setDowned(player, downed)
 			end
 		end
 	else
-		PlayerService.Equip(player, st.Equipped or Config.DefaultLoadout.Weapons[1])
+		PlayerService.Equip(player, st.Equipped or st.Kit.Weapons[1])
 	end
 end
 
@@ -250,10 +255,70 @@ end
 
 -- ใส่เกราะตาม loadout ใหม่ (ความทนทานเต็ม)
 local function refillArmor(player)
-	local cfg = Config.Armors[Config.DefaultLoadout.Armor]
+	local st = states[player]
+	local kit = st and st.Kit
+	local cfg = kit and kit.Armor and Config.Armors[kit.Armor]
 	player:SetAttribute("ArmorName", cfg and cfg.Name or nil)
-	player:SetAttribute("MaxArmor", cfg and cfg.Durability or 0)
-	player:SetAttribute("Armor", cfg and cfg.Durability or 0)
+	player:SetAttribute("MaxArmor", cfg and kit.ArmorDurability or 0)
+	player:SetAttribute("Armor", cfg and kit.ArmorDurability or 0)
+end
+
+-- เติมของกินได้ตาม kit: ลูกธนู, ยา, เกราะ
+local function refillSupplies(player)
+	local st = states[player]
+	if not st then
+		return
+	end
+	player:SetAttribute("Arrows", st.Kit.Arrows)
+	player:SetAttribute("Potions", st.Kit.Potions)
+	refillArmor(player)
+end
+
+-- ตั้งชุดอุปกรณ์จาก loadout (เรียกตอนโปรไฟล์โหลด / จัด loadout / อัพเกรด ใน Lobby)
+function PlayerService.SetKit(player, kit)
+	local st = states[player]
+	if not st or #kit.Weapons == 0 then
+		return
+	end
+	st.Kit = kit
+	player:SetAttribute("Weapons", table.concat(kit.Weapons, ","))
+	player:SetAttribute("HasShield", kit.Shield)
+	if not PlayerService.InMatch(player) then
+		refillSupplies(player)
+	end
+	-- ถืออาวุธเดิมต่อถ้ายังอยู่ใน loadout (ถอด/ใส่โล่ใหม่ตาม kit) ไม่งั้นถือชิ้นแรก
+	local weapon = table.find(kit.Weapons, st.Equipped) and st.Equipped or kit.Weapons[1]
+	st.Equipped = nil
+	PlayerService.Equip(player, weapon)
+	if st.Equipped == nil then
+		st.Equipped = weapon -- ยังไม่มีตัวละคร: ถือชิ้นนี้ตอนเกิด
+		player:SetAttribute("Equipped", weapon)
+	end
+end
+
+-- ตัวคูณดาเมจจากเลเวลอัพเกรดของอาวุธที่ถือ
+function PlayerService.DamageBonus(player, weaponId)
+	local st = states[player]
+	return st and st.Kit.DamageBonus[weaponId] or 1
+end
+
+-- ดื่มยา: +Heal HP (ไม่เกิน MaxHP) — ในแมตช์ใช้ขวดจริง, ใน Lobby ไม่จำกัด
+local function onUsePotion(player)
+	local st = states[player]
+	local char, hum = PlayerService.GetCharacterParts(player)
+	if not st or not char or os.clock() < st.NextPotion then
+		return
+	end
+	local potions = player:GetAttribute("Potions") or 0
+	if potions <= 0 or hum.Health >= hum.MaxHealth then
+		return
+	end
+	st.NextPotion = os.clock() + 1
+	hum.Health = math.min(hum.MaxHealth, hum.Health + Config.Items.Potion.Heal)
+	if PlayerService.InMatch(player) then
+		player:SetAttribute("Potions", potions - 1)
+	end
+	Remotes.WorldSound:FireAllClients("Pickup", char:GetPivot().Position)
 end
 
 -- จบ wave: คนที่ไม่มีใครชุบ respawn ที่ฐาน (ได้เกราะใหม่)
@@ -394,8 +459,7 @@ function PlayerService.ResetPlayer(player)
 	if not st then
 		return
 	end
-	player:SetAttribute("Arrows", Config.Weapons.Bow.Ammo + Config.DefaultLoadout.ExtraArrows)
-	refillArmor(player)
+	refillSupplies(player)
 	for _, name in STAT_NAMES do
 		player:SetAttribute("Stat" .. name, 0)
 	end
@@ -433,8 +497,7 @@ function PlayerService.LeaveMatch(player)
 	if char then
 		hum.Health = hum.MaxHealth
 	end
-	player:SetAttribute("Arrows", Config.Weapons.Bow.Ammo + Config.DefaultLoadout.ExtraArrows)
-	refillArmor(player)
+	refillSupplies(player)
 	moveTo(player, lobbySpawn())
 end
 
@@ -463,14 +526,16 @@ local function onCharacterAdded(player, char)
 	end
 	char:WaitForChild("RightHand", 10)
 	char:WaitForChild("LeftHand", 10)
-	PlayerService.Equip(player, st.Equipped or Config.DefaultLoadout.Weapons[1])
+	PlayerService.Equip(player, st.Equipped or st.Kit.Weapons[1])
 end
 
 local function onPlayerAdded(player)
 	states[player] = newState()
 	player:SetAttribute("InMatch", false)
-	player:SetAttribute("Arrows", Config.Weapons.Bow.Ammo + Config.DefaultLoadout.ExtraArrows)
 	player:SetAttribute("Downed", false)
+	player:SetAttribute("Weapons", table.concat(states[player].Kit.Weapons, ","))
+	player:SetAttribute("HasShield", states[player].Kit.Shield)
+	refillSupplies(player)
 	for _, name in STAT_NAMES do
 		player:SetAttribute("Stat" .. name, 0)
 	end
@@ -496,6 +561,10 @@ function PlayerService.Init()
 	Remotes.ReviveStart.OnServerEvent:Connect(onReviveStart)
 	Remotes.ReviveCancel.OnServerEvent:Connect(stopReviving)
 	Remotes.ShieldBlock.OnServerEvent:Connect(PlayerService.SetBlocking)
+	local usePotion = Remotes:FindFirstChild("UsePotion") or Instance.new("RemoteEvent")
+	usePotion.Name = "UsePotion"
+	usePotion.Parent = Remotes
+	usePotion.OnServerEvent:Connect(onUsePotion)
 
 	local accumulator = 0
 	RunService.Heartbeat:Connect(function(dt)

@@ -212,6 +212,9 @@ function DataService.WaitForProfile(player)
 	return profiles[player] and profiles[player].Data
 end
 
+-- เรียกเมื่อโปรไฟล์ของผู้เล่นโหลดเสร็จ: function(player)
+DataService.ProfileLoaded = loadedSignal.Event
+
 function DataService.Get(player)
 	return profiles[player] and profiles[player].Data
 end

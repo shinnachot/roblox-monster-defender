@@ -77,7 +77,8 @@ function CameraController.Init()
 
 	-- รันหลัง CameraModule ของ Roblox เพื่อให้ค่า MouseBehavior ของเรามีผล
 	RunService:BindToRenderStep("MD_ShiftLock", Enum.RenderPriority.Camera.Value + 1, function(dt)
-		if not character or not character.Parent or not humanoid or humanoid.Health <= 0 then
+		-- เปิดหน้าเมนู (เช่น Loadout): ปล่อยเมาส์ให้คลิก UI ได้
+		if CameraController.MenuOpen or not character or not character.Parent or not humanoid or humanoid.Health <= 0 then
 			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 			return
 		end

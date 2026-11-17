@@ -43,6 +43,9 @@ local hurtEdges = {}
 local slots = {}
 local matchTop, baseBack -- ส่วนที่แสดงเฉพาะตอนอยู่ในแมตช์
 local lastReward -- รางวัลแมตช์ล่าสุด (Remotes.MatchRewards)
+local slotBar -- แถวช่องอาวุธด้านล่าง
+local currentEquipped
+local rebuildSlots
 local rollReadyAt = 0
 local rollDuration = 1
 
@@ -82,9 +85,11 @@ end
 
 -- รูปอาวุธในช่อง: โมเดลจริงจาก Assets.Weapons แสดงใน ViewportFrame (วางเฉียง 45 องศาให้เต็มช่อง)
 local function buildIcon(parent, weaponName)
-	local template = Assets:WaitForChild("Weapons"):FindFirstChild(weaponName)
+	local item = Config.Items[weaponName]
+	local template = Assets:WaitForChild("Weapons"):FindFirstChild(item and item.Model or weaponName)
 	if not template then
-		text({ Size = UDim2.fromScale(1, 1), Text = ITEM_NAMES[weaponName] or weaponName, TextSize = 20 }, parent)
+		local icon = item and item.Icon
+		text({ Size = UDim2.fromScale(1, 1), Text = icon or ITEM_NAMES[weaponName] or weaponName, TextSize = icon and 36 or 20 }, parent)
 		return
 	end
 	local viewport = make("ViewportFrame", {
@@ -106,6 +111,15 @@ local function buildIcon(parent, weaponName)
 	viewport.CurrentCamera = camera
 end
 
+-- รายการอาวุธตาม loadout (attribute Weapons จาก server) ตามลำดับปุ่ม 1-5
+function Hud.GetWeapons()
+	local list = {}
+	for id in string.gmatch(player:GetAttribute("Weapons") or "", "[^,]+") do
+		table.insert(list, id)
+	end
+	return list
+end
+
 local function buildSlot(parent, index, weaponName)
 	local frame = make("TextButton", {
 		Size = UDim2.fromOffset(SLOT_SIZE, SLOT_SIZE), LayoutOrder = index, Text = "", AutoButtonColor = false,
@@ -115,10 +129,10 @@ local function buildSlot(parent, index, weaponName)
 	local stroke = make("UIStroke", { Thickness = 3, Color = ACCENT, Enabled = false, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, frame)
 	buildIcon(frame, weaponName)
 	if not touch then
-		text({ Size = UDim2.fromOffset(20, 20), Position = UDim2.fromOffset(4, 2), Text = tostring(index), TextSize = 15, TextColor3 = ACCENT, ZIndex = 3 }, frame)
+		text({ Size = UDim2.fromOffset(20, 20), Position = UDim2.fromOffset(4, 2), Text = weaponName == "Potion" and "F" or tostring(index), TextSize = 15, TextColor3 = ACCENT, ZIndex = 3 }, frame)
 	end
-	-- มุมล่างขวา: จำนวนลูกธนู; อาวุธที่มีโล่ใช้บรรทัดล่างบอกสถานะโล่
-	local hasShield = Config.Weapons[weaponName] ~= nil and Config.Weapons[weaponName].Shield ~= nil
+	-- มุมล่างขวา: จำนวนลูกธนู/ยา; อาวุธที่มีโล่ (และใส่โล่ใน loadout) ใช้บรรทัดล่างบอกสถานะโล่
+	local hasShield = player:GetAttribute("HasShield") == true and Config.Weapons[weaponName] ~= nil and Config.Weapons[weaponName].Shield ~= nil
 	local ammo = text({
 		Size = UDim2.new(1, -8, 0, 20), Position = UDim2.new(0, 4, 1, -22), Text = "", ZIndex = 3,
 		TextSize = hasShield and 12 or 19,
@@ -163,9 +177,26 @@ function Hud.Init(options)
 	-- ล่างกลาง: ช่องอาวุธ + กลิ้งหลบ
 	local bottom = make("Frame", { Size = UDim2.fromOffset(400, SLOT_SIZE), Position = UDim2.new(0.5, 0, 1, touch and -14 or -24), AnchorPoint = Vector2.new(0.5, 1), BackgroundTransparency = 1 }, gui)
 	make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Bottom, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, bottom)
-	for index, weaponName in Config.DefaultLoadout.Weapons do
-		buildSlot(bottom, index, weaponName)
+	slotBar = bottom
+	rebuildSlots()
+	-- loadout เปลี่ยน (ใน Lobby) -> สร้างช่องใหม่ (defer: รอ server ตั้ง attribute ที่เหลือให้ครบก่อน)
+	local pending = false
+	local function scheduleRebuild()
+		if not pending then
+			pending = true
+			task.defer(function()
+				pending = false
+				rebuildSlots()
+			end)
+		end
 	end
+	player:GetAttributeChangedSignal("Weapons"):Connect(scheduleRebuild)
+	player:GetAttributeChangedSignal("HasShield"):Connect(scheduleRebuild)
+	player:GetAttributeChangedSignal("Potions"):Connect(function()
+		if (player:GetAttribute("Potions") or 0) > 0 and not slots.Potion then
+			scheduleRebuild()
+		end
+	end)
 	local rollFrame = make("Frame", { Size = UDim2.fromOffset(SLOT_SIZE, SLOT_SIZE), LayoutOrder = 99, BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0.25, BorderSizePixel = 0, ClipsDescendants = true }, bottom)
 	corner(rollFrame, 12)
 	rollFrame.Visible = not touch -- จอสัมผัสมีปุ่มกลิ้งของตัวเอง (TouchControls)
@@ -343,6 +374,11 @@ function Hud.Refresh()
 	if slots.Bow then
 		slots.Bow.Ammo.Text = tostring(player:GetAttribute("Arrows") or 0)
 	end
+	if slots.Potion then
+		local potions = player:GetAttribute("Potions") or 0
+		slots.Potion.Ammo.Text = tostring(potions)
+		slots.Potion.Frame.BackgroundTransparency = potions > 0 and 0.35 or 0.7
+	end
 
 	-- ล้ม: บอกสถานะ + ความคืบหน้าถ้ามีคนกำลังชุบ
 	local now = workspace:GetServerTimeNow()
@@ -389,12 +425,31 @@ function Hud.Refresh()
 	end
 end
 
+-- สร้างช่องอาวุธ + ช่องยาใหม่ตาม loadout ปัจจุบัน
+rebuildSlots = function()
+	if not slotBar then
+		return
+	end
+	for _, slot in slots do
+		slot.Frame:Destroy()
+	end
+	table.clear(slots)
+	for index, weaponName in Hud.GetWeapons() do
+		buildSlot(slotBar, index, weaponName)
+	end
+	if (player:GetAttribute("Potions") or 0) > 0 then
+		buildSlot(slotBar, 50, "Potion")
+	end
+	Hud.SetEquipped(currentEquipped)
+end
+
 -- เพื่อนที่กดชุบได้ตอนนี้ (nil ถ้าไม่มี)
 function Hud.GetReviveCandidate()
 	return reviveCandidate
 end
 
 function Hud.SetEquipped(weaponName)
+	currentEquipped = weaponName
 	for name, slot in slots do
 		slot.Stroke.Enabled = name == weaponName
 		slot.Frame.BackgroundTransparency = name == weaponName and 0.05 or 0.35
@@ -416,8 +471,8 @@ end
 -- ยกโล่อยู่: เน้นข้อความในช่องดาบ
 function Hud.SetBlocking(on)
 	local slot = slots.Sword
-	if not slot then
-		return
+	if not slot or player:GetAttribute("HasShield") ~= true then
+		return -- ไม่ได้ใส่โล่ใน loadout: ไม่แสดงคำแนะนำโล่
 	end
 	slot.Ammo.Text = on and "ยกโล่อยู่" or (touch and "" or SHIELD_HINT)
 	slot.Ammo.TextColor3 = on and ACCENT or Color3.fromRGB(210, 210, 210)

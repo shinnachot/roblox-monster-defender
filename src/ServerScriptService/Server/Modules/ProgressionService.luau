@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local Progression = require(ReplicatedStorage.Shared.Progression)
 local DataService = require(script.Parent.DataService)
+local PlayerService = require(script.Parent.PlayerService)
 
 local ProgressionService = {}
 
@@ -69,6 +70,15 @@ function ProgressionService.AwardAll(stage, won, participants)
 	end
 end
 
+-- ส่งชุดอุปกรณ์ตาม loadout + เลเวลอัพเกรดล่าสุดให้ PlayerService (เฉพาะตอนอยู่ Lobby)
+function ProgressionService.ApplyKit(player)
+	local data = DataService.Get(player)
+	if not data or ProgressionService.InMatch(player) then
+		return
+	end
+	PlayerService.SetKit(player, Progression.BuildKit(DataService.GetLoadout(player), data.Levels))
+end
+
 local function setLoadout(player, loadout)
 	if throttled(player) then
 		return false, "Busy"
@@ -91,6 +101,7 @@ local function setLoadout(player, loadout)
 	DataService.Update(player, function(d)
 		d.Loadout = copy
 	end)
+	ProgressionService.ApplyKit(player)
 	return true
 end
 
@@ -120,6 +131,7 @@ local function upgradeItem(player, itemId)
 		end
 		d.Levels[itemId] = level + 1
 	end, true)
+	ProgressionService.ApplyKit(player)
 	return true
 end
 
@@ -137,6 +149,32 @@ function ProgressionService.Init()
 	Players.PlayerRemoving:Connect(function(player)
 		lastRequest[player] = nil
 	end)
+	DataService.ProfileLoaded:Connect(ProgressionService.ApplyKit)
+
+	-- ทดสอบใน Studio: ตั้ง workspace.DebugGrantParts = N (ชิ้นส่วนทุกไอเท็มที่ปลดล็อคแล้ว)
+	-- หรือ workspace.DebugGrantExp = N ระหว่าง Play — แจกให้ทุกคนแล้วลบ attribute ทิ้ง
+	if game:GetService("RunService"):IsStudio() then
+		for _, name in { "DebugGrantParts", "DebugGrantExp" } do
+			workspace:GetAttributeChangedSignal(name):Connect(function()
+				local amount = workspace:GetAttribute(name)
+				if typeof(amount) ~= "number" then
+					return
+				end
+				workspace:SetAttribute(name, nil)
+				for _, player in Players:GetPlayers() do
+					DataService.Update(player, function(d)
+						if name == "DebugGrantExp" then
+							d.Exp = math.max(0, d.Exp + amount)
+						else
+							for _, id in Progression.UnlockedItems(d.Exp, true) do
+								d.Parts[id] = (d.Parts[id] or 0) + amount
+							end
+						end
+					end)
+				end
+			end)
+		end
+	end
 end
 
 return ProgressionService

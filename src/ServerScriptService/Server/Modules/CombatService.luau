@@ -62,6 +62,7 @@ local function swordHit(player, damage)
 		return
 	end
 	local cfg = Config.Weapons.Sword
+	damage = math.round(damage * PlayerService.DamageBonus(player, "Sword")) -- โบนัสอัพเกรด +3%/เลเวล
 	local origin = root.Position
 	local look = flat(root.CFrame.LookVector).Unit
 	local minDot = math.cos(math.rad(cfg.ArcDegrees / 2))
@@ -286,7 +287,7 @@ local function onBowFire(player, direction, shotId)
 
 	-- ยิ่งง้างนานยิ่งแรงและบินไกล
 	local speed = cfg.MinSpeed + (cfg.MaxSpeed - cfg.MinSpeed) * charge
-	local damage = cfg.MinDamage + (cfg.MaxDamage - cfg.MinDamage) * charge
+	local damage = (cfg.MinDamage + (cfg.MaxDamage - cfg.MinDamage) * charge) * PlayerService.DamageBonus(player, "Bow")
 	local origin = head.Position + direction * 1.5
 	local velocity = direction * speed
 

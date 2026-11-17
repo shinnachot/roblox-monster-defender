@@ -94,6 +94,9 @@ function Progression.ValidateLoadout(loadout, exp)
 		if not Progression.IsUnlocked(id, exp) then
 			return false, "Locked"
 		end
+		if item.Available == false then
+			return false, "Unavailable"
+		end
 		if seen[id] and not item.Repeatable then
 			return false, "Duplicate"
 		end
@@ -114,6 +117,40 @@ function Progression.ValidateLoadout(loadout, exp)
 		return false, "Points"
 	end
 	return true
+end
+
+-- แปลง loadout (รายการ id) เป็นชุดอุปกรณ์ที่ใช้ในเกม
+-- คืน { Weapons = {id...} ตามลำดับปุ่ม 1-5, Arrows, Armor = id|nil, Shield = bool, Potions,
+--       DamageBonus = {[weaponId]=ตัวคูณ}, ArmorDurability }
+function Progression.BuildKit(loadout, levels)
+	levels = levels or {}
+	local kit = { Weapons = {}, Arrows = 0, Armor = nil, Shield = false, Potions = 0, DamageBonus = {}, ArmorDurability = 0 }
+	local hasBow = false
+	for _, id in loadout do
+		local item = Config.Items[id]
+		if not item then
+			continue
+		end
+		if item.Kind == "Weapon" then
+			table.insert(kit.Weapons, id)
+			kit.DamageBonus[id] = Progression.Bonus(levels[id])
+			hasBow = hasBow or id == "Bow"
+		elseif item.Kind == "Armor" then
+			kit.Armor = id
+			local armor = Config.Armors[id]
+			kit.ArmorDurability = armor and math.round(armor.Durability * Progression.Bonus(levels[id])) or 0
+		elseif item.Kind == "Ammo" then
+			kit.Arrows += item.Arrows
+		elseif item.Kind == "Offhand" then
+			kit.Shield = true
+		elseif item.Kind == "Consumable" then
+			kit.Potions += item.Charges
+		end
+	end
+	if hasBow then
+		kit.Arrows += Config.Weapons.Bow.Ammo
+	end
+	return kit
 end
 
 -- สุ่มรางวัลหลังแมตช์: คืน { Exp = ค่าใหม่, ExpDelta, Parts = { [id] = จำนวน }, UnlockedStage }
