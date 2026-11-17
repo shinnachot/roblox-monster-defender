@@ -10,11 +10,13 @@ Studio คือต้นฉบับของโค้ด (GDD ข้อ 0) โ
 | ใช้เป็น | assetId |
 |---|---|
 | ดาบ | 86734189755806 |
+| โล่ (คู่กับดาบ, ติดท่อนแขนซ้าย) | 97615965139101 |
 | ธนู | 82137658715480 |
 | ลูกธนู | 77628724111197 |
 | Goblin (R15) | 16317433513 |
 | คริสตัลฐาน | 99829008230184 |
-| ป้อม | 91733327096845 |
+| ป้อม — เหลือใช้แค่หลังคาป้อมมุม 4 หลัง (กำแพงสร้างใหม่จาก Part ใน `Map.Fort`) | 91733327096845 |
+| ต้นไม้ (Low Poly Tree Pack) — ต้นแบบเก็บใน `ServerStorage.TreeTemplates` | 15217079919 |
 | Skeleton (R15) — Skeleton Archer | 94271026740769 |
 | Orc (R15) — Orc Brute และ Boss Orc Warlord | 71129266059717 |
 | ปืนคาบศิลา — Goblin Musketeer | 8845834570 |
@@ -30,9 +32,9 @@ Animation (สร้างด้วย `generate_animation`, อยู่ใน�
 | GoblinDeath | 89394267292810 | ใช้เป็นท่าตายของ monster ทุกแบบ |
 | Crawl | 80395659785739 | ท่าคลานตอนผู้เล่นล้ม |
 
-ท่าง้างธนูของผู้เล่นและท่าเล็งของ monster ยิงไกลไม่ใช้คลิป animation — ตั้งมุมข้อต่อแขนโดยตรงใน `Client/BowAim.luau` และ `Client/MonsterPose.luau`
+ท่าง้างธนู ท่ายกโล่ของผู้เล่น และท่าเล็งของ monster ยิงไกลไม่ใช้คลิป animation — ตั้งมุมข้อต่อแขนโดยตรงใน `Client/BowAim.luau`, `Client/ShieldGuard.luau` และ `Client/MonsterPose.luau`
 
-เสียง: ดู `ReplicatedStorage.Assets.Sounds` ใน Studio (id อยู่ใน SoundId ของแต่ละตัว)
+เสียง: ดู `ReplicatedStorage.Assets.Sounds` ใน Studio (id อยู่ใน SoundId ของแต่ละตัว) — ShieldBlock = 9125740352
 
 ## ทดสอบ (เฟส 2)
 

@@ -6,8 +6,16 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+local Assets = ReplicatedStorage:WaitForChild("Assets")
 
 local Hud = {}
+
+-- เรียกเมื่อแตะ/คลิกช่องอาวุธ: function(weaponName) — ตั้งโดย Client
+Hud.OnSlotActivated = nil
+
+local SLOT_SIZE = 76
+local SHIELD_HINT = "คลิกขวา: โล่"
+local touch = false -- จอสัมผัส: ซ่อนคำแนะนำปุ่มคีย์บอร์ด และย้ายสิ่งที่ชนกับปุ่มควบคุม
 
 local ITEM_NAMES = {
 	Sword = "ดาบ",
@@ -23,6 +31,7 @@ local player = Players.LocalPlayer
 local gui
 local waveLabel, statusLabel, baseFill, baseLabel
 local hpFill, hpLabel
+local armorFill, armorLabel
 local chargeBar, chargeFill
 local banner, bannerTitle, bannerSub, bannerStats
 local bossBack, bossFill, bossLabel
@@ -69,43 +78,96 @@ local function bar(parent, size, position, anchor, fillColor)
 	return fill, label, back
 end
 
-local function buildSlot(parent, index, weaponName)
-	local frame = make("Frame", {
-		Size = UDim2.fromOffset(84, 64), LayoutOrder = index,
-		BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0.25, BorderSizePixel = 0,
+-- รูปอาวุธในช่อง: โมเดลจริงจาก Assets.Weapons แสดงใน ViewportFrame (วางเฉียง 45 องศาให้เต็มช่อง)
+local function buildIcon(parent, weaponName)
+	local template = Assets:WaitForChild("Weapons"):FindFirstChild(weaponName)
+	if not template then
+		text({ Size = UDim2.fromScale(1, 1), Text = ITEM_NAMES[weaponName] or weaponName, TextSize = 20 }, parent)
+		return
+	end
+	local viewport = make("ViewportFrame", {
+		Size = UDim2.new(1, -8, 1, -8), Position = UDim2.fromOffset(4, 4), BackgroundTransparency = 1,
+		Ambient = Color3.new(1, 1, 1), LightColor = Color3.new(1, 1, 1), LightDirection = Vector3.new(-1, -1, -1),
 	}, parent)
-	corner(frame, 8)
-	local stroke = make("UIStroke", { Thickness = 2, Color = ACCENT, Enabled = false }, frame)
-	text({ Size = UDim2.fromOffset(22, 20), Position = UDim2.fromOffset(4, 2), Text = tostring(index), TextSize = 15, TextColor3 = ACCENT }, frame)
-	text({ Size = UDim2.new(1, 0, 0, 26), Position = UDim2.fromOffset(0, 14), Text = ITEM_NAMES[weaponName] or weaponName, TextSize = 22 }, frame)
-	local ammo = text({ Size = UDim2.new(1, 0, 0, 18), Position = UDim2.fromOffset(0, 42), Text = "", TextSize = 15, TextColor3 = Color3.fromRGB(210, 210, 210) }, frame)
-	slots[weaponName] = { Frame = frame, Stroke = stroke, Ammo = ammo }
+	local model = template:Clone()
+	model.Parent = viewport
+	local cf, size = model:GetBoundingBox()
+	-- มองตามแกนที่บางที่สุด (เห็นด้านกว้างของอาวุธ) โดยให้แกนที่ยาวที่สุดชี้ขึ้น แล้วเอียงกล้อง 45 องศา
+	local axes = { { size.X, cf.RightVector }, { size.Y, cf.UpVector }, { size.Z, cf.LookVector } }
+	table.sort(axes, function(a, b)
+		return a[1] < b[1]
+	end)
+	local viewDir, longDir, length = axes[1][2], axes[3][2], axes[3][1]
+	local camera = make("Camera", { FieldOfView = 30 }, viewport)
+	local distance = length / (2 * math.tan(math.rad(15))) * 0.82
+	camera.CFrame = CFrame.lookAt(cf.Position + viewDir * distance, cf.Position, longDir) * CFrame.Angles(0, 0, math.rad(45))
+	viewport.CurrentCamera = camera
 end
 
-function Hud.Init()
+local function buildSlot(parent, index, weaponName)
+	local frame = make("TextButton", {
+		Size = UDim2.fromOffset(SLOT_SIZE, SLOT_SIZE), LayoutOrder = index, Text = "", AutoButtonColor = false,
+		BackgroundColor3 = Color3.fromRGB(52, 58, 72), BackgroundTransparency = 0.35, BorderSizePixel = 0,
+	}, parent)
+	corner(frame, 12)
+	local stroke = make("UIStroke", { Thickness = 3, Color = ACCENT, Enabled = false, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, frame)
+	buildIcon(frame, weaponName)
+	if not touch then
+		text({ Size = UDim2.fromOffset(20, 20), Position = UDim2.fromOffset(4, 2), Text = tostring(index), TextSize = 15, TextColor3 = ACCENT, ZIndex = 3 }, frame)
+	end
+	-- มุมล่างขวา: จำนวนลูกธนู; อาวุธที่มีโล่ใช้บรรทัดล่างบอกสถานะโล่
+	local hasShield = Config.Weapons[weaponName] ~= nil and Config.Weapons[weaponName].Shield ~= nil
+	local ammo = text({
+		Size = UDim2.new(1, -8, 0, 20), Position = UDim2.new(0, 4, 1, -22), Text = "", ZIndex = 3,
+		TextSize = hasShield and 12 or 19,
+		TextXAlignment = hasShield and Enum.TextXAlignment.Center or Enum.TextXAlignment.Right,
+		TextColor3 = hasShield and Color3.fromRGB(210, 210, 210) or Color3.new(1, 1, 1),
+	}, frame)
+	slots[weaponName] = { Frame = frame, Stroke = stroke, Ammo = ammo }
+	if hasShield and not touch then
+		ammo.Text = SHIELD_HINT
+	end
+	frame.Activated:Connect(function()
+		if Hud.OnSlotActivated then
+			Hud.OnSlotActivated(weaponName)
+		end
+	end)
+end
+
+-- options: { Touch = จอสัมผัสหรือไม่ }
+function Hud.Init(options)
+	touch = options ~= nil and options.Touch == true
 	gui = make("ScreenGui", { Name = "Hud", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 5 }, player:WaitForChild("PlayerGui"))
 
 	-- บน: wave + สถานะ + HP ฐาน
 	local top = make("Frame", { Size = UDim2.fromOffset(420, 130), Position = UDim2.new(0.5, 0, 0, 44), AnchorPoint = Vector2.new(0.5, 0), BackgroundTransparency = 1 }, gui)
 	waveLabel = text({ Size = UDim2.new(1, 0, 0, 32), Text = "", TextSize = 28 }, top)
 	statusLabel = text({ Size = UDim2.new(1, 0, 0, 24), Position = UDim2.fromOffset(0, 32), Text = "", TextSize = 19, TextColor3 = Color3.fromRGB(230, 230, 230) }, top)
-	baseFill, baseLabel = bar(top, UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 62), Vector2.zero, Color3.fromRGB(70, 170, 255))
-	bossFill, bossLabel, bossBack = bar(top, UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 90), Vector2.zero, Color3.fromRGB(190, 45, 45))
+	bossFill, bossLabel, bossBack = bar(top, UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 62), Vector2.zero, Color3.fromRGB(190, 45, 45))
 	bossBack.Visible = false
 
 	-- ล่างซ้าย: HP ผู้เล่น
-	hpFill, hpLabel = bar(gui, UDim2.fromOffset(260, 24), UDim2.new(0, 24, 1, -24), Vector2.new(0, 1), Color3.fromRGB(210, 60, 55))
+	-- ขวาบน: HP คริสตัล (ฐาน) ขนาดเท่าแถบ HP ผู้เล่น
+	local barSize = touch and UDim2.fromOffset(180, 22) or UDim2.fromOffset(220, 24)
+	baseFill, baseLabel = bar(gui, barSize, UDim2.new(1, -24, 0, 64), Vector2.new(1, 0), Color3.fromRGB(70, 170, 255))
+
+	-- ซ้ายบน: แถบเกราะ (บาง สีน้ำเงิน ไม่มีตัวเลข) แล้วตามด้วยแถบ HP
+	local armorSize = UDim2.new(barSize.X, UDim.new(0, 10))
+	armorFill, armorLabel = bar(gui, armorSize, UDim2.fromOffset(24, 64), Vector2.zero, Color3.fromRGB(45, 120, 235))
+	armorLabel.Visible = false
+	hpFill, hpLabel = bar(gui, barSize, UDim2.fromOffset(24, 64 + armorSize.Y.Offset + 4), Vector2.zero, Color3.fromRGB(210, 60, 55))
 
 	-- ล่างกลาง: ช่องอาวุธ + กลิ้งหลบ
-	local bottom = make("Frame", { Size = UDim2.fromOffset(400, 64), Position = UDim2.new(0.5, 0, 1, -24), AnchorPoint = Vector2.new(0.5, 1), BackgroundTransparency = 1 }, gui)
-	make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, bottom)
+	local bottom = make("Frame", { Size = UDim2.fromOffset(400, SLOT_SIZE), Position = UDim2.new(0.5, 0, 1, touch and -14 or -24), AnchorPoint = Vector2.new(0.5, 1), BackgroundTransparency = 1 }, gui)
+	make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Bottom, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, bottom)
 	for index, weaponName in Config.DefaultLoadout.Weapons do
 		buildSlot(bottom, index, weaponName)
 	end
-	local rollFrame = make("Frame", { Size = UDim2.fromOffset(84, 64), LayoutOrder = 99, BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0.25, BorderSizePixel = 0, ClipsDescendants = true }, bottom)
-	corner(rollFrame, 8)
+	local rollFrame = make("Frame", { Size = UDim2.fromOffset(SLOT_SIZE, SLOT_SIZE), LayoutOrder = 99, BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0.25, BorderSizePixel = 0, ClipsDescendants = true }, bottom)
+	corner(rollFrame, 12)
+	rollFrame.Visible = not touch -- จอสัมผัสมีปุ่มกลิ้งของตัวเอง (TouchControls)
 	text({ Size = UDim2.fromOffset(22, 20), Position = UDim2.fromOffset(4, 2), Text = "Q", TextSize = 15, TextColor3 = ACCENT, ZIndex = 3 }, rollFrame)
-	rollLabel = text({ Size = UDim2.new(1, 0, 0, 26), Position = UDim2.fromOffset(0, 20), Text = "กลิ้งหลบ", TextSize = 19, ZIndex = 3 }, rollFrame)
+	rollLabel = text({ Size = UDim2.new(1, 0, 0, 26), Position = UDim2.fromOffset(0, 28), Text = "กลิ้งหลบ", TextSize = 17, ZIndex = 3 }, rollFrame)
 	rollOverlay = make("Frame", { Size = UDim2.fromScale(1, 0), Position = UDim2.fromScale(0, 1), AnchorPoint = Vector2.new(0, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, BorderSizePixel = 0, ZIndex = 2 }, rollFrame)
 
 	-- กลางจอ: จุดเล็ง + แถบง้างธนู
@@ -238,8 +300,16 @@ function Hud.Refresh()
 	hpFill.Size = UDim2.fromScale(math.clamp(hp / maxHP, 0, 1), 1)
 	hpLabel.Text = string.format("HP %d / %d", math.ceil(hp), maxHP)
 
+	local armor = player:GetAttribute("Armor") or 0
+	local maxArmor = player:GetAttribute("MaxArmor") or 0
+	local armorBack = armorFill.Parent
+	armorBack.Visible = maxArmor > 0
+	if maxArmor > 0 then
+		armorFill.Size = UDim2.fromScale(math.clamp(armor / maxArmor, 0, 1), 1)
+	end
+
 	if slots.Bow then
-		slots.Bow.Ammo.Text = string.format("ลูกธนู %d", player:GetAttribute("Arrows") or 0)
+		slots.Bow.Ammo.Text = tostring(player:GetAttribute("Arrows") or 0)
 	end
 
 	-- ล้ม: บอกสถานะ + ความคืบหน้าถ้ามีคนกำลังชุบ
@@ -272,7 +342,7 @@ function Hud.Refresh()
 	promptFrame.Visible = reviveCandidate ~= nil
 	if reviveCandidate then
 		local endsAt = reviveCandidate:GetAttribute("ReviveEndsAt")
-		promptLabel.Text = string.format("กดค้าง E เพื่อชุบ %s", reviveCandidate.DisplayName)
+		promptLabel.Text = string.format(touch and "กดปุ่ม ชุบ ค้างไว้เพื่อชุบ %s" or "กดค้าง E เพื่อชุบ %s", reviveCandidate.DisplayName)
 		local progress = endsAt and math.clamp(1 - (endsAt - now) / Config.Downed.ReviveTime, 0, 1) or 0
 		promptFill.Size = UDim2.fromScale(progress, 1)
 	end
@@ -311,6 +381,16 @@ function Hud.SetCharge(charge)
 	end
 end
 
+-- ยกโล่อยู่: เน้นข้อความในช่องดาบ
+function Hud.SetBlocking(on)
+	local slot = slots.Sword
+	if not slot then
+		return
+	end
+	slot.Ammo.Text = on and "ยกโล่อยู่" or (touch and "" or SHIELD_HINT)
+	slot.Ammo.TextColor3 = on and ACCENT or Color3.fromRGB(210, 210, 210)
+end
+
 function Hud.SetRollCooldown(duration)
 	rollDuration = duration
 	rollReadyAt = os.clock() + duration
@@ -329,7 +409,7 @@ function Hud.FlashAmmo()
 		return
 	end
 	slot.Ammo.TextColor3 = Color3.fromRGB(255, 70, 60)
-	TweenService:Create(slot.Ammo, TweenInfo.new(0.5), { TextColor3 = Color3.fromRGB(210, 210, 210) }):Play()
+	TweenService:Create(slot.Ammo, TweenInfo.new(0.5), { TextColor3 = Color3.new(1, 1, 1) }):Play()
 end
 
 return Hud

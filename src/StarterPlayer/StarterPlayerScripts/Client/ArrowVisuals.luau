@@ -44,7 +44,8 @@ local flying = {}
 
 -- kind: "Arrow" (ค่าเริ่มต้น) หรือ "Bullet" (กระสุนปืนคาบศิลา)
 -- fromMonster: กระสุนของ monster ทะลุ monster ด้วยกัน แต่ปัก/หยุดที่ผู้เล่น
-function ArrowVisuals.Spawn(origin, velocity, gravity, kind, fromMonster)
+-- onHit (ไม่บังคับ): เรียกด้วย RaycastResult ตอนลูกธนูชนอะไรสักอย่าง (ใช้แจ้ง server ตอนลูกธนูของเราโดน monster)
+function ArrowVisuals.Spawn(origin, velocity, gravity, kind, fromMonster, onHit)
 	local model
 	if kind == "Bullet" then
 		model = Instance.new("Model")
@@ -92,6 +93,7 @@ function ArrowVisuals.Spawn(origin, velocity, gravity, kind, fromMonster)
 		Gravity = Vector3.new(0, -gravity, 0),
 		Elapsed = 0,
 		Params = params,
+		OnHit = onHit,
 	})
 end
 
@@ -103,6 +105,9 @@ RunService.RenderStepped:Connect(function(dt)
 		local result = workspace:Raycast(arrow.Position, step, arrow.Params)
 		if result or arrow.Elapsed > MAX_FLIGHT_TIME then
 			table.remove(flying, index)
+			if result and arrow.OnHit then
+				task.spawn(arrow.OnHit, result)
+			end
 			if result and arrow.Kind ~= "Bullet" then
 				-- ปักคาจุดที่โดน (หัวลูกธนูฝังเข้าไปเล็กน้อย)
 				local direction = arrow.Velocity.Unit

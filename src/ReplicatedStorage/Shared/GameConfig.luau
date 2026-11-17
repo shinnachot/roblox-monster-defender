@@ -2,6 +2,9 @@
 -- เฟส 5 จะ override ค่าเหล่านี้ผ่าน ConfigService ได้ — ตอนนี้เป็นค่า default ในโค้ด
 -- เวลาใน Anim (Start/Hit/Hold/End) คือวินาทีในคลิป animation ที่สร้างจาก generate_animation
 -- (คลิปยาว 3-6 วิ จึงเล่นเฉพาะช่วงที่เป็นท่าจริง แล้วเร่งด้วย Speed)
+-- ท่าฟันของอาวุธระยะประชิดแบ่ง 3 ช่วง (ดู SegmentTiming): เงื้อ (Speed) -> ฟาดเร็ว Strike..StrikeEnd (StrikeSpeed)
+-- -> ดึงกลับ (RecoverSpeed); แสงตามดาบเปิดเฉพาะช่วงฟาด
+-- กฎของเกม: อาวุธระยะประชิดทุกชิ้นต้องฟาดเร็วและมีแสงตามอาวุธ (ใส่ Strike* ในท่า + Trail ในอาวุธ)
 
 local Config = {}
 
@@ -30,14 +33,26 @@ Config.Weapons = {
 		Slot = 1,
 		Kind = "Melee",
 		Hand = "Right",
-		Range = 8,
-		ArcDegrees = 120,
+		Range = 9.5, -- ดาบยาวขึ้น 1.3 เท่า (โมเดลใน Assets ถูก scale แล้ว)
+		ArcDegrees = 140, -- ท่าฟันกวาดกว้างขึ้น
 		ComboReset = 0.9, -- เว้นนานกว่านี้หลังจบจังหวะ = เริ่มคอมโบใหม่
 		Combo = {
-			-- Hit = จังหวะที่ปลายดาบเร็วสุดในคลิป (วัดจาก playtest)
-			{ Anim = "SwordSlash1", Start = 0.8, Hit = 1.2, End = 1.7, Speed = 2.0, Damage = 18 },
-			{ Anim = "SwordSlash2", Start = 0.4, Hit = 0.8, End = 1.2, Speed = 2.0, Damage = 18 },
-			{ Anim = "SwordSlash3", Start = 0.5, Hit = 1.25, End = 1.8, Speed = 1.8, Damage = 30 },
+			-- ท่าฟันจัดด้วยโค้ด (Client/SlashPose + Config.SlashPoses) — เวลาเป็นวินาทีจริง:
+			-- เงื้อ (Windup) -> ฟาด (Strike, แสงเปิด) -> ค้าง/คืนท่า (Recover); ดาเมจเกิดที่ HitAt ของช่วงฟาด
+			-- คอมโบครบ 3 ท่า ~1.0 วิ; ดาเมจ 12/12/20 ให้ DPS ใกล้เคียงตอนท่ายังช้า
+			{ Pose = "ForehandDown", Windup = 0.1, Strike = 0.1, Recover = 0.13, HitAt = 0.6, Damage = 12 },
+			{ Pose = "BackhandRise", Windup = 0.09, Strike = 0.1, Recover = 0.12, HitAt = 0.6, Damage = 12 },
+			{ Pose = "WideSweep", Windup = 0.17, Strike = 0.12, Recover = 0.2, HitAt = 0.6, Damage = 20 },
+		},
+		-- แสงตามดาบ: จุดโคน/ปลายใบดาบตามแกน Y ของ Grip (studs) — สี/ความยาวใช้ Config.MeleeTrail
+		Trail = { Base = 1.15, Tip = 5.8 },
+		-- โล่มือซ้าย: กดค้างคลิกขวาเพื่อยกโล่ — เดินช้า ฟันไม่ได้ ลดดาเมจที่โดนจากด้านหน้า
+		Shield = {
+			Model = "Shield",
+			Hand = "Left", -- ติดที่ท่อนแขนล่างซ้าย (LeftLowerArm)
+			BlockReduction = 0.3, -- กันได้ 30% ของดาเมจ (โดน 70%)
+			ArcDegrees = 180, -- กันได้เฉพาะการโจมตีจากด้านหน้าในมุมนี้
+			WalkSpeed = 8,
 		},
 	},
 	Bow = {
@@ -67,10 +82,53 @@ Config.Weapons = {
 	},
 }
 
+-- ท่าฟันของอาวุธระยะประชิด (จัดด้วยโค้ดใน Client/SlashPose) — keyframe: ท่าเตรียม, กลางวง, จบวง
+-- Arm/Blade = { ขวา, ขึ้น, หน้า } ในพื้นที่ตัวละคร, Yaw = บิดเอว (องศา, บวก = ซ้าย)
+-- อาวุธประชิดชิ้นใหม่ใช้ท่าเหล่านี้ซ้ำได้ หรือเพิ่มท่าใหม่ที่นี่
+Config.SlashPoses = {
+	-- ฟันเฉียงลง: ดาบชูขึ้นทางขวา -> ฟาดเฉียงผ่านหน้า -> จบต่ำทางซ้าย
+	ForehandDown = {
+		{ Arm = { 0.55, 0.8, 0.1 }, Blade = { 0.15, 1, -0.35 }, Yaw = -25 },
+		{ Arm = { 0.2, 0.25, 1 }, Blade = { -0.55, 0.35, 0.75 }, Yaw = 0 },
+		{ Arm = { -0.55, -0.35, 0.75 }, Blade = { -0.9, -0.35, -0.25 }, Yaw = 35 },
+	},
+	-- ฟันย้อนขึ้น: จากต่ำทางซ้าย -> กวาดผ่านหน้า -> จบสูงทางขวา
+	BackhandRise = {
+		{ Arm = { -0.6, -0.3, 0.7 }, Blade = { -0.85, -0.3, -0.4 }, Yaw = 35 },
+		{ Arm = { 0.15, 0.1, 1 }, Blade = { 0.5, 0.35, 0.8 }, Yaw = 0 },
+		{ Arm = { 0.7, 0.45, 0.45 }, Blade = { 0.55, 0.8, -0.25 }, Yaw = -30 },
+	},
+	-- ท่าปิด: ง้างไปด้านหลังขวา -> กวาดแนวราบกว้างระดับอก -> จบทางซ้าย
+	WideSweep = {
+		{ Arm = { 0.85, 0.25, -0.2 }, Blade = { 0.4, 0.15, -0.9 }, Yaw = -45 },
+		{ Arm = { 0.1, 0.15, 1 }, Blade = { -0.6, 0.05, 0.8 }, Yaw = 0 },
+		{ Arm = { -0.75, 0.1, 0.55 }, Blade = { -0.95, 0, -0.2 }, Yaw = 45 },
+	},
+}
+
+-- แสงตามอาวุธระยะประชิด (ใช้ร่วมกันทุกชิ้น; อาวุธแต่ละชิ้น override สีได้ด้วย Trail.Color)
+Config.MeleeTrail = {
+	Color = { Color3.fromRGB(255, 214, 110), Color3.fromRGB(255, 160, 40) }, -- ทองเข้ม: ต้นแสง -> หาง
+	EdgeColor = Color3.fromRGB(255, 244, 205), -- เส้นสว่างที่ขอบปลายดาบ
+	Transparency = 0.25, -- ตอนเริ่ม (จางจนหายตามอายุ)
+	Lifetime = 0.16,
+	EdgeWidth = 0.35, -- ความกว้างเส้นขอบ (studs จากปลายดาบ)
+	LightEmission = 0.6,
+}
+
 -- เฟส 1 ยังไม่มีหน้า Loadout: ใช้ชุดเริ่มต้น (ดาบ + ธนู + ลูกธนูเพิ่ม)
+-- เกราะ: ค่าเกราะ (Durability) รับดาเมจก่อนทั้งหมด เกราะหมดแล้วจึงเริ่มลด HP
+-- ไม่ฟื้นระหว่างด่าน; ได้เกราะใหม่ตอนเริ่มแมตช์ และตอน respawn ที่ฐาน (จบ wave โดยไม่มีใครชุบ)
+Config.Armors = {
+	Leather = { Name = "เกราะหนัง", Durability = 25 },
+	Chain = { Name = "เกราะโซ่", Durability = 50 },
+	Iron = { Name = "เกราะเหล็ก", Durability = 75 },
+}
+
 Config.DefaultLoadout = {
 	Weapons = { "Sword", "Bow" },
 	ExtraArrows = 6,
+	Armor = "Leather",
 }
 
 Config.Monsters = {
@@ -90,7 +148,7 @@ Config.Monsters = {
 		DeathSound = "GoblinDeath",
 	},
 
-	-- ยิงธนูระยะ 40 studs, มีโอกาสดรอปลูกธนู (เริ่มเจอ stage 2)
+	-- มองหาผู้เล่นในรัศมี 90 studs แล้วเดินเข้าไปยิงจากระยะ 65 studs, มีโอกาสดรอปลูกธนู (เริ่มเจอ stage 1 คลื่น 2)
 	SkeletonArcher = {
 		Template = "Skeleton",
 		Scale = 1,
@@ -101,7 +159,8 @@ Config.Monsters = {
 		Ranged = {
 			Kind = "Bow", -- ท่าเล็ง + ชนิดกระสุนที่ client แสดง
 			Damage = 8,
-			Range = 40,
+			Range = 65, -- ระยะยิงผู้เล่น
+			DetectRange = 90, -- รัศมีมองหาผู้เล่น (เห็นแล้วเดินเข้าหาจนถึงระยะยิง; ไม่ใส่ = เท่ากับ Range)
 			BaseRange = 28, -- ระยะที่หยุดยิงฐาน
 			AimTime = 0.9, -- เล็งค้างก่อนยิง (ให้ผู้เล่นเห็นและหลบทัน)
 			Cooldown = 2.6,
@@ -172,7 +231,7 @@ Config.Monsters = {
 		AttackCooldown = 3,
 		Sweep = { Radius = 14, ArcDegrees = 220 },
 		Summon = { Interval = 18, Kind = "Goblin", Count = 4 },
-		Weapon = { Model = "Sword", Hand = "Right", Scale = 2.2 },
+		Weapon = { Model = "Sword", Hand = "Right", Scale = 1.7 }, -- โมเดลดาบยาวขึ้น 1.3 เท่าแล้ว (1.7 x 1.3 ~ ขนาดเดิม 2.2)
 		AttackAnim = { Name = "SwordSlash2", Start = 0.4, Hit = 0.8, End = 1.2, Speed = 0.6 },
 		DeathAnim = { Name = "GoblinDeath", Start = 0.7, Hold = 2.3, Speed = 0.9 },
 		AttackSound = "BossRoar",
@@ -197,8 +256,23 @@ Config.Pickup = {
 
 Config.AI = {
 	AggroFrontRange = 12, -- ผู้เล่นขวางทางข้างหน้าในระยะนี้ -> หันมาตีผู้เล่น
-	LeashRange = 30, -- ผู้เล่นหนีไกลกว่านี้ -> กลับไปหาฐาน
+	LeashRange = 30, -- ผู้เล่นหนีไกลกว่านี้ -> กลับไปหาฐาน (ไม่ใช้กับเป้าที่อยู่บนกำแพง)
+	MeleeHeightReach = 7, -- ต่างระดับเกินนี้ตีไม่ถึง (เช่น ผู้เล่นบนกำแพง) ต้องเดินขึ้นไปหา
+	-- monster ยิงไกล: หลบหลังที่กำบัง (tag "Cover") ระหว่างบรรจุ แล้วโผล่ออกมายิง
+	CoverSearchRadius = 35, -- ใช้ที่กำบังที่อยู่ใกล้ตัวไม่เกินนี้
+	CoverMinThreatDistance = 12, -- ไม่ใช้ที่กำบังที่ผู้เล่นยืนติดอยู่
+	CoverGiveUpTime = 6, -- เดินไปจุดหลบ/จุดโผล่ไม่ถึงในเวลานี้ -> เลิกใช้ที่กำบังชั่วคราว
+	ElevatedStandOff = 20, -- เป้าอยู่บนกำแพง: monster ยิงไกลเข้าใกล้ไม่เกินระยะราบนี้ (ไม่ปีนขึ้นไป)
+	BlindGiveUpTime = 5, -- อยู่ในระยะแต่มองไม่เห็นเป้านานเท่านี้ -> เลิกสนใจเป้านั้นชั่วคราว
 	TickRate = 0.1,
+}
+
+-- แผนที่: ป้อมอยู่กลาง (0,0), ประตูเดียวด้านหน้า (-Z), จุดเกิด monster ห่างประตู ~300 studs
+Config.Map = {
+	GateZ = -55, -- ผิวด้านในของกำแพงหน้า: Z น้อยกว่านี้ = ยังอยู่นอกลานป้อม
+	LaneEndZ = -110, -- monster เดินตามเลนของตัวเอง (X ตามจุดเกิด) จนถึง Z นี้ แล้วจึงบีบเข้าประตู
+	LaneHalfWidth = 80, -- เลนอยู่ในช่วง X = -80..80
+	WallMinY = 11, -- ตำแหน่งที่สูงกว่านี้ = อยู่บนกำแพง/ป้อมมุม (ทางเดินบนกำแพงสูง 16)
 }
 
 Config.Waves = {
@@ -212,10 +286,10 @@ Config.Waves = {
 	Stages = {
 		[1] = {
 			{ Goblin = 8 },
-			{ Goblin = 12 },
-			{ Goblin = 16 },
-			{ Goblin = 20 },
-			{ OrcWarlord = 1, Goblin = 8 },
+			{ Goblin = 12, SkeletonArcher = 2 }, -- เริ่มมีตัวยิงไกลตั้งแต่คลื่น 2 ไม่ให้ง่ายเกินไป
+			{ Goblin = 14, SkeletonArcher = 3 },
+			{ Goblin = 18, SkeletonArcher = 4 },
+			{ OrcWarlord = 1, Goblin = 8, SkeletonArcher = 2 },
 		},
 		[2] = {
 			{ Goblin = 10, SkeletonArcher = 2 },
@@ -248,12 +322,26 @@ Config.Waves = {
 	},
 }
 
--- แปลงช่วงคลิปเป็นเวลาจริง: คืน (เวลาที่ดาเมจเกิด, ความยาวท่า) เป็นวินาที
+-- แปลงช่วงคลิปเป็นเวลาจริง: คืน (เวลาที่ดาเมจเกิด, ความยาวท่า, เวลาเริ่มฟาด, เวลาจบฟาด) เป็นวินาที
+-- ท่าที่มี Strike: เงื้อด้วย Speed, ฟาดด้วย StrikeSpeed, ดึงกลับด้วย RecoverSpeed
 function Config.SegmentTiming(seg)
+	if seg.Pose then
+		-- ท่าจัดด้วยโค้ด: เวลาเป็นวินาทีจริงอยู่แล้ว
+		local strikeAt = seg.Windup
+		local strikeEnd = seg.Windup + seg.Strike
+		return strikeAt + seg.Strike * (seg.HitAt or 0.5), strikeEnd + seg.Recover, strikeAt, strikeEnd
+	end
 	local speed = seg.Speed or 1
-	local hit = seg.Hit and (seg.Hit - seg.Start) / speed or 0
 	local stop = seg.End or seg.Hold
-	return hit, (stop - seg.Start) / speed
+	if not seg.Strike then
+		local hit = seg.Hit and (seg.Hit - seg.Start) / speed or 0
+		return hit, (stop - seg.Start) / speed, nil, nil
+	end
+	local windup = (seg.Strike - seg.Start) / speed
+	local strike = (seg.StrikeEnd - seg.Strike) / seg.StrikeSpeed
+	local recover = (stop - seg.StrikeEnd) / (seg.RecoverSpeed or speed)
+	local hit = windup + (seg.Hit - seg.Strike) / seg.StrikeSpeed
+	return hit, windup + strike + recover, windup, windup + strike
 end
 
 return Config

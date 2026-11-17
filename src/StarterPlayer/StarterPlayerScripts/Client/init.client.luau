@@ -17,12 +17,17 @@ local CameraController = require(script:WaitForChild("CameraController"))
 local Hud = require(script:WaitForChild("Hud"))
 local BowAim = require(script:WaitForChild("BowAim"))
 local LegBlend = require(script:WaitForChild("LegBlend"))
+local ShieldGuard = require(script:WaitForChild("ShieldGuard"))
+local MeleeFx = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("MeleeFx"))
+local SlashPose = require(script:WaitForChild("SlashPose"))
+local TouchControls = require(script:WaitForChild("TouchControls")) -- ปุ่มบนจอสัมผัส (มือถือ)
 require(script:WaitForChild("MonsterPose")) -- ท่าเล็งของ monster ยิงไกล (ทำงานเอง)
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
 local SwordCfg = Config.Weapons.Sword
+local ShieldCfg = SwordCfg.Shield
 local BowCfg = Config.Weapons.Bow
 local RollCfg = Config.Roll
 local CRAWL = Config.Downed.CrawlAnim
@@ -38,6 +43,8 @@ local segmentToken = {}
 -- สถานะการต่อสู้
 local equipped = Config.DefaultLoadout.Weapons[1]
 local mouseDown = false
+local rightMouseDown = false
+local blocking = false -- ยกโล่อยู่ (ถือดาบ + กดค้างคลิกขวา)
 local comboIndex = 0
 local nextSwingAt = 0
 local lastSwingEnd = -math.huge
@@ -108,6 +115,27 @@ local function startDraw()
 	Remotes.BowDrawStart:FireServer()
 end
 
+local nextShotId = 0
+local monsterFolder = workspace:WaitForChild("Monsters")
+
+-- ลูกธนูของเราโดน monster บนจอ: แจ้ง server (server ตรวจวิถี/ตำแหน่งก่อนคิดดาเมจ)
+-- เพราะบนจอ monster อยู่ช้ากว่า server ~0.2 วิ การจำลองฝั่ง server อย่างเดียวจะพลาดทั้งที่เห็นว่าโดน
+local function reportArrowHit(shotId, result)
+	local node = result.Instance
+	while node and node.Parent ~= monsterFolder do
+		node = node.Parent
+		if node == workspace or node == game then
+			return
+		end
+	end
+	if not node then
+		return
+	end
+	local part = result.Instance
+	local isHead = part.Name == "Head" or part:FindFirstAncestorWhichIsA("Accessory") ~= nil
+	Remotes.ArrowHit:FireServer(shotId, node, isHead, result.Position)
+end
+
 local function releaseDraw()
 	if not drawStart then
 		return
@@ -128,16 +156,46 @@ local function releaseDraw()
 	end
 
 	Sfx.Play("BowRelease") -- สายธนูตอนปล่อย: เล่นทันทีไม่รอ server
-	Remotes.BowFire:FireServer(direction)
+	nextShotId += 1
+	local shotId = nextShotId
+	Remotes.BowFire:FireServer(direction, shotId)
 	local speed = BowCfg.MinSpeed + (BowCfg.MaxSpeed - BowCfg.MinSpeed) * charge
-	ArrowVisuals.Spawn(head.Position + direction * 1.5, direction * speed, BowCfg.Gravity)
+	ArrowVisuals.Spawn(head.Position + direction * 1.5, direction * speed, BowCfg.Gravity, nil, false, function(result)
+		reportArrowHit(shotId, result)
+	end)
+end
+
+---------------------------------------------------------------- โล่
+
+local function stopBlock()
+	if not blocking then
+		return
+	end
+	blocking = false
+	ShieldGuard.SetLocalBlocking(false)
+	Hud.SetBlocking(false)
+	if hum and not downed then
+		hum.WalkSpeed = defaultWalkSpeed
+	end
+	Remotes.ShieldBlock:FireServer(false)
+end
+
+local function startBlock()
+	if blocking or rolling or not isAlive() or equipped ~= "Sword" or not ShieldCfg then
+		return
+	end
+	blocking = true
+	ShieldGuard.SetLocalBlocking(true)
+	Hud.SetBlocking(true)
+	hum.WalkSpeed = ShieldCfg.WalkSpeed
+	Remotes.ShieldBlock:FireServer(true)
 end
 
 ---------------------------------------------------------------- ดาบ
 
 local function trySwing()
 	local now = os.clock()
-	if now < nextSwingAt or rolling or not isAlive() then
+	if now < nextSwingAt or rolling or blocking or not isAlive() then
 		return
 	end
 	local combo = SwordCfg.Combo
@@ -151,7 +209,14 @@ local function trySwing()
 	nextSwingAt = now + duration * 0.8
 	lastSwingEnd = now + duration
 
-	playSegment(tracks[seg.Anim], seg.Start, seg.End, seg.Speed, false)
+	local weaponModel = char:FindFirstChild("HeldWeapon")
+	if seg.Pose then
+		SlashPose.Play(char, seg) -- ท่าฟันจัดด้วยโค้ด
+		local _, _, strikeAt, strikeEndAt = Config.SegmentTiming(seg)
+		MeleeFx.ShowTrail(weaponModel, strikeAt, strikeEndAt) -- แสงตามดาบช่วงฟาด
+	else
+		MeleeFx.PlaySlash(tracks[seg.Anim], seg, weaponModel) -- ท่าจากคลิป: ฟาดเร็ว + แสงตามดาบ
+	end
 	-- เสียงวืดตรงจังหวะดาบเหวี่ยง (ก่อนดาเมจเกิดเล็กน้อย)
 	task.delay(math.max(0, hitDelay - 0.1), Sfx.Play, "SwordSwing")
 	Remotes.SwordSwing:FireServer(index)
@@ -168,6 +233,8 @@ local function tryRoll()
 		return
 	end
 	cancelDraw(true)
+	stopBlock()
+	SlashPose.Stop(char)
 
 	local direction = hum.MoveDirection
 	if direction.Magnitude < 0.1 then
@@ -196,11 +263,15 @@ local function tryRoll()
 	Sfx.Play("Roll")
 	Remotes.Roll:FireServer()
 	Hud.SetRollCooldown(RollCfg.Cooldown)
+	TouchControls.SetRollCooldown(RollCfg.Cooldown)
 
 	task.delay(RollCfg.Duration, function()
 		mover:Destroy()
 		rolling = false
 		CameraController.FaceCamera = true
+		if rightMouseDown then
+			startBlock() -- ยังกดคลิกขวาค้างอยู่ -> ยกโล่ต่อหลังกลิ้ง
+		end
 	end)
 end
 
@@ -229,6 +300,8 @@ local function applyDowned()
 	if downed then
 		mouseDown = false
 		cancelDraw(true)
+		stopBlock()
+		SlashPose.Stop(char)
 		if crawl and not crawl.IsPlaying then
 			crawl:Play(0.3, 1, 0)
 		end
@@ -248,9 +321,47 @@ local function equip(weaponName)
 		return
 	end
 	cancelDraw(true)
+	stopBlock()
 	equipped = weaponName
 	Hud.SetEquipped(weaponName)
+	TouchControls.SetEquipped(weaponName, Config.Weapons[weaponName].Shield ~= nil)
 	Remotes.Equip:FireServer(weaponName)
+end
+
+-- คำสั่งต่อสู้: ใช้ร่วมกันทั้งเมาส์/คีย์บอร์ด และปุ่มบนจอสัมผัส (TouchControls)
+local function attackDown()
+	mouseDown = true
+	if equipped == "Bow" then
+		startDraw()
+	end
+end
+
+local function attackUp()
+	mouseDown = false
+	releaseDraw()
+end
+
+local function blockDown()
+	rightMouseDown = true
+	startBlock()
+end
+
+local function blockUp()
+	rightMouseDown = false
+	stopBlock()
+end
+
+-- กดค้างใกล้เพื่อนที่ล้มเพื่อชุบ (server นับเวลาและตรวจระยะ)
+local function reviveDown()
+	local target = Hud.GetReviveCandidate()
+	if target and isAlive() then
+		cancelDraw(true)
+		Remotes.ReviveStart:FireServer(target)
+	end
+end
+
+local function reviveUp()
+	Remotes.ReviveCancel:FireServer()
 end
 
 local SLOT_KEYS = {
@@ -263,19 +374,13 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		return
 	end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		mouseDown = true
-		if equipped == "Bow" then
-			startDraw()
-		end
+		attackDown()
+	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+		blockDown()
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		tryRoll()
 	elseif input.KeyCode == Enum.KeyCode.E then
-		-- กดค้าง E ใกล้เพื่อนที่ล้มเพื่อชุบ (server นับเวลาและตรวจระยะ)
-		local target = Hud.GetReviveCandidate()
-		if target and isAlive() then
-			cancelDraw(true)
-			Remotes.ReviveStart:FireServer(target)
-		end
+		reviveDown()
 	elseif SLOT_KEYS[input.KeyCode] then
 		local weaponName = Config.DefaultLoadout.Weapons[SLOT_KEYS[input.KeyCode]]
 		if weaponName then
@@ -286,10 +391,11 @@ end)
 
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		mouseDown = false
-		releaseDraw()
+		attackUp()
+	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+		blockUp()
 	elseif input.KeyCode == Enum.KeyCode.E then
-		Remotes.ReviveCancel:FireServer()
+		reviveUp()
 	end
 end)
 
@@ -329,6 +435,32 @@ Remotes.ArrowFired.OnClientEvent:Connect(function(userId, origin, velocity, grav
 	end
 end)
 
+-- แสงตามอาวุธประชิดของผู้เล่นคนอื่น (ท่าของเขา replicate มาเองผ่าน Animator)
+local function watchMeleeSwing(other)
+	if other == player then
+		return
+	end
+	other:GetAttributeChangedSignal("MeleeSwing"):Connect(function()
+		local value = other:GetAttribute("MeleeSwing")
+		local index = value and tonumber(string.match(value, "^(%d+):"))
+		local weaponName = other:GetAttribute("Equipped")
+		local cfg = weaponName and Config.Weapons[weaponName]
+		local seg = index and cfg and cfg.Combo and cfg.Combo[index]
+		local model = other.Character and other.Character:FindFirstChild("HeldWeapon")
+		if seg and model then
+			local _, _, strikeAt, strikeEndAt = Config.SegmentTiming(seg)
+			MeleeFx.ShowTrail(model, strikeAt, strikeEndAt)
+			if seg.Pose then
+				SlashPose.Play(other.Character, seg)
+			end
+		end
+	end)
+end
+Players.PlayerAdded:Connect(watchMeleeSwing)
+for _, other in Players:GetPlayers() do
+	watchMeleeSwing(other)
+end
+
 Remotes.WorldSound.OnClientEvent:Connect(function(name, position)
 	Sfx.Play(name, position)
 end)
@@ -360,22 +492,29 @@ local function onCharacterAdded(newChar)
 	hum.Died:Connect(function()
 		mouseDown = false
 		cancelDraw(true)
+		stopBlock()
 	end)
 
 	defaultWalkSpeed = hum.WalkSpeed
 	mouseDown = false
 	drawStart = nil
 	rolling = false
+	blocking = false
+	ShieldGuard.SetLocalBlocking(false)
+	Hud.SetBlocking(false)
 	comboIndex = 0
 	Hud.SetCharge(nil)
 	Hud.SetEquipped(equipped)
+	TouchControls.SetEquipped(equipped, Config.Weapons[equipped].Shield ~= nil)
 	applyDowned()
 	CameraController.SetCharacter(newChar)
 	BowAim.SetCharacter(newChar)
 	-- ให้ขาเดินต่อระหว่างฟันดาบขณะเคลื่อนที่
 	local slashTracks = {}
 	for _, seg in SwordCfg.Combo do
-		table.insert(slashTracks, tracks[seg.Anim])
+		if seg.Anim then
+			table.insert(slashTracks, tracks[seg.Anim])
+		end
 	end
 	task.spawn(LegBlend.SetCharacter, newChar, slashTracks)
 end
@@ -388,7 +527,20 @@ task.spawn(function()
 	ContentProvider:PreloadAsync(Assets.Sounds:GetChildren())
 end)
 
-Hud.Init()
+Hud.OnSlotActivated = equip -- แตะช่องอาวุธเพื่อสลับ
+Hud.Init({ Touch = TouchControls.IsTouchDevice() })
+TouchControls.Init({
+	AttackDown = attackDown,
+	AttackUp = attackUp,
+	BlockDown = blockDown,
+	BlockUp = blockUp,
+	Roll = tryRoll,
+	ReviveDown = reviveDown,
+	ReviveUp = reviveUp,
+	CanRevive = function()
+		return Hud.GetReviveCandidate() ~= nil and isAlive()
+	end,
+})
 CameraController.Init()
 player.CharacterAdded:Connect(onCharacterAdded)
 if player.Character then

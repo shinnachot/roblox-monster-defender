@@ -12,6 +12,7 @@ local Assets = ReplicatedStorage.Assets
 
 local PlayerService = require(script.Parent.PlayerService)
 local BaseService = require(script.Parent.BaseService)
+local MonsterNav = require(script.Parent.MonsterNav)
 
 local MonsterService = {}
 
@@ -22,9 +23,10 @@ local activeCount = 0
 local pickups = {} -- [Model] = { Arrows, ExpiresAt }
 local rng = Random.new()
 
--- ทางเข้าเดียวด้านหน้า (-Z): monster ที่ยังอยู่นอกกำแพงต้องเดินผ่านประตูก่อน
-local GATE_Z = -34
-local GATE_HALF_WIDTH = 4
+-- ทางเข้าเดียวด้านหน้า (-Z): monster ที่ยังอยู่นอกลานป้อม (Z < GATE_Z) ยังตี/ยิงฐานไม่ได้
+-- เส้นทางเดิน (อ้อมที่กำบัง, ผ่านประตู, ขึ้นบันไดกำแพง) คำนวณโดย MonsterNav
+local GATE_Z = Config.Map.GateZ
+local GROUND_ROOT_Y = 3 -- ความสูง root ของตัวที่ยืนบนพื้น
 local BOSS_SIGHT_RANGE = 90
 
 local DISABLED_STATES = {
@@ -153,8 +155,14 @@ function MonsterService.Spawn(kind, position, options)
 		PlayerCount = playerCount,
 		Target = nil, -- Player ที่กำลังไล่ตี (nil = เดินไปตีฐาน)
 		DamageBy = {}, -- [Player] = ดาเมจสะสม (Boss ใช้เลือกเป้า)
+		LaneX = math.clamp(position.X, -Config.Map.LaneHalfWidth, Config.Map.LaneHalfWidth), -- เลนที่เดินเข้าหาป้อม (ตามจุดเกิด)
 		NextAttack = 0,
 		BusyUntil = 0,
+		Cover = nil, -- monster ยิงไกล: ที่กำบังที่กำลังใช้ { Box, Sign, RecheckAt, Deadline }
+		NoCoverUntil = 0,
+		BlindSince = nil, -- เริ่มมองไม่เห็นเป้าบนกำแพงตั้งแต่เมื่อไร
+		IgnorePlayer = nil, -- ผู้เล่นที่เลิกสนใจชั่วคราว (มองไม่เห็น)
+		IgnoreUntil = 0,
 		AimUntil = nil, -- monster ยิงไกล: เวลาที่จะลั่น
 		AimPlayer = nil,
 		NextSummon = os.clock() + (cfg.Summon and cfg.Summon.Interval * 0.5 or 0),
@@ -337,16 +345,25 @@ local function distanceToBase(m)
 	return flat(BaseService.GetPosition() - pos).Magnitude
 end
 
-local function moveTowardBase(m)
-	local pos = m.Root.Position
-	if pos.Z < GATE_Z then
-		m.Hum:MoveTo(Vector3.new(math.clamp(pos.X, -GATE_HALF_WIDTH, GATE_HALF_WIDTH), pos.Y, GATE_Z + 4))
-	else
-		m.Hum:MoveTo(BaseService.GetPosition())
-	end
+-- ระยะที่ monster ประชิดตีถึงฐาน (ตัวใหญ่ตีถึงจากไกลกว่า)
+local function baseReach(m)
+	return Config.Base.AttackRadius + math.max(0, (m.Cfg.AttackRange or 5) - 5)
 end
 
--- ผู้เล่นที่ขวางทางอยู่ข้างหน้าในระยะ AggroFrontRange
+-- เดินไปหาฐาน: เป้าคือจุดบนวงรอบคริสตัลด้านที่ตัวเองเดินมา (ศูนย์กลางคริสตัลเดินไปถึงไม่ได้)
+local function moveTowardBase(m, now)
+	-- ยังอยู่กลางสนาม: เดินตามเลนของตัวเอง (กระจายซ้าย/กลาง/ขวา) แล้วค่อยบีบเข้าประตูตอนใกล้ป้อม
+	if m.Root.Position.Z < Config.Map.LaneEndZ - 6 then
+		MonsterNav.MoveTo(m, Vector3.new(m.LaneX, GROUND_ROOT_Y, Config.Map.LaneEndZ), now)
+		return
+	end
+	local base = BaseService.GetPosition()
+	local away = flat(m.Root.Position - base)
+	local dir = away.Magnitude > 0.1 and away.Unit or -Vector3.zAxis
+	MonsterNav.MoveTo(m, Vector3.new(base.X, GROUND_ROOT_Y, base.Z) + dir * (baseReach(m) - 1), now)
+end
+
+-- ผู้เล่นที่ขวางทางอยู่ข้างหน้าในระยะ AggroFrontRange (ไม่นับคนที่อยู่ต่างระดับ เช่น บนกำแพง)
 local function findBlockingPlayer(m)
 	local pos = m.Root.Position
 	local look = flat(m.Root.CFrame.LookVector)
@@ -356,7 +373,8 @@ local function findBlockingPlayer(m)
 		if char then
 			local to = flat(root.Position - pos)
 			local dist = to.Magnitude
-			if dist <= Config.AI.AggroFrontRange and (dist < 2 or to.Unit:Dot(look) > 0.2) then
+			local sameLevel = math.abs(root.Position.Y - pos.Y) <= Config.AI.MeleeHeightReach
+			if sameLevel and dist <= Config.AI.AggroFrontRange and (dist < 2 or to.Unit:Dot(look) > 0.2) then
 				if not bestDist or dist < bestDist then
 					best, bestDist = player, dist
 				end
@@ -367,12 +385,13 @@ local function findBlockingPlayer(m)
 end
 
 -- ตรวจเป้าหมายปัจจุบัน: ผู้เล่นตาย/ล้ม/หนีไกลเกิน -> กลับไปหาฐาน; คืน root ของเป้าหมายถ้ายังใช้ได้
+-- เป้าที่อยู่บนกำแพงไม่มีระยะเลิกไล่: ไล่จนกว่าจะล้ม หรือลงมาแล้วหนีไกลเกิน leash
 local function validateTarget(m, leash)
 	if not m.Target then
 		return nil
 	end
 	local char, _, root = PlayerService.GetCharacterParts(m.Target)
-	if char and flat(root.Position - m.Root.Position).Magnitude <= leash then
+	if char and (MonsterNav.IsElevated(root.Position) or flat(root.Position - m.Root.Position).Magnitude <= leash) then
 		return root
 	end
 	m.Target = nil
@@ -417,8 +436,9 @@ local function meleeAttack(m, now, targetPlayer, targetPos)
 				local char, _, root = PlayerService.GetCharacterParts(player)
 				if char then
 					local to = flat(root.Position - origin)
-					if to.Magnitude <= cfg.Sweep.Radius and (to.Magnitude < 3 or to.Unit:Dot(look) >= minDot) then
-						PlayerService.Damage(player, damage)
+					local sameLevel = math.abs(root.Position.Y - origin.Y) <= Config.AI.MeleeHeightReach + 3
+					if sameLevel and to.Magnitude <= cfg.Sweep.Radius and (to.Magnitude < 3 or to.Unit:Dot(look) >= minDot) then
+						PlayerService.Damage(player, damage, origin)
 					end
 				end
 			end
@@ -427,8 +447,11 @@ local function meleeAttack(m, now, targetPlayer, targetPos)
 			end
 		elseif targetPlayer then
 			local char, _, root = PlayerService.GetCharacterParts(targetPlayer)
-			if char and flat(root.Position - origin).Magnitude <= cfg.AttackRange + 2 then
-				PlayerService.Damage(targetPlayer, damage)
+			if char
+				and flat(root.Position - origin).Magnitude <= cfg.AttackRange + 2
+				and math.abs(root.Position.Y - origin.Y) <= Config.AI.MeleeHeightReach
+			then
+				PlayerService.Damage(targetPlayer, damage, origin)
 			end
 		else
 			BaseService.Damage(cfg.BaseDamage)
@@ -437,24 +460,23 @@ local function meleeAttack(m, now, targetPlayer, targetPos)
 end
 
 local function meleeChase(m, now, targetRoot)
-	local pos = m.Root.Position
-	local dist = flat(targetRoot.Position - pos).Magnitude
-	if dist <= m.Cfg.AttackRange then
+	local offset = targetRoot.Position - m.Root.Position
+	local reach = Config.AI.MeleeHeightReach + (m.Cfg.Boss and 3 or 0)
+	if flat(offset).Magnitude <= m.Cfg.AttackRange and math.abs(offset.Y) <= reach then
 		if now >= m.NextAttack then
 			meleeAttack(m, now, m.Target, targetRoot.Position)
 		else
 			stop(m)
 			face(m, targetRoot.Position)
 		end
-	else
-		m.Hum:MoveTo(targetRoot.Position)
+	elseif not MonsterNav.MoveTo(m, targetRoot.Position, now) then
+		m.Target = nil -- เดินไปไม่ถึง (เช่น ยืนบนเชิงเทิน) -> กลับไปหาฐาน
 	end
 end
 
 local function meleeBase(m, now)
 	local dist = distanceToBase(m)
-	-- monster ตัวใหญ่ตีถึงฐานจากไกลกว่า
-	local reach = Config.Base.AttackRadius + math.max(0, m.Cfg.AttackRange - 5)
+	local reach = baseReach(m)
 	if dist and dist <= reach then
 		if now >= m.NextAttack then
 			meleeAttack(m, now, nil, BaseService.GetPosition())
@@ -462,7 +484,7 @@ local function meleeBase(m, now)
 			stop(m)
 		end
 	else
-		moveTowardBase(m)
+		moveTowardBase(m, now)
 	end
 end
 
@@ -488,10 +510,11 @@ local function updateBoss(m, now)
 	local cfg = m.Cfg
 
 	-- เลือกตีคนที่ทำดาเมจใส่ตัวเองมากที่สุด (ที่ยังยืนอยู่); ถ้ายังไม่มีใครตี เลือกคนที่ใกล้สุดในระยะมองเห็น
+	-- Boss ไม่โจมตีคนบนกำแพง: ข้ามไปเลือกคนบนพื้น ถ้าไม่มีใครอยู่บนพื้นเลยก็ไปตีฐาน
 	local best, bestScore
 	for _, player in Players:GetPlayers() do
 		local char, _, root = PlayerService.GetCharacterParts(player)
-		if char then
+		if char and not MonsterNav.IsElevated(root.Position) then
 			local dealt = m.DamageBy[player] or 0
 			local dist = flat(root.Position - m.Root.Position).Magnitude
 			local score = dealt > 0 and (1e6 + dealt) or (dist <= BOSS_SIGHT_RANGE and -dist or nil)
@@ -583,7 +606,7 @@ local function simulateProjectile(m, origin, velocity, ranged)
 		if result then
 			local player = playerFromPart(result.Instance)
 			if player then
-				PlayerService.Damage(player, damage)
+				PlayerService.Damage(player, damage, origin)
 			elseif result.Instance:IsDescendantOf(BaseService.Model) then
 				BaseService.Damage(m.Cfg.BaseDamage)
 			end
@@ -622,6 +645,112 @@ local function startAiming(m, now, player, targetPos)
 	m.Model:SetAttribute("AimAt", targetPos)
 end
 
+-- ที่กำบังที่กำลังใช้อยู่ (ทบทวนใหม่เป็นระยะ); nil = ไม่มีที่กำบังที่ใช้ได้ในตอนนี้
+local function currentCover(m, now, threatPos)
+	if MonsterNav.IsElevated(m.Root.Position) or now < m.NoCoverUntil then
+		m.Cover = nil
+		return nil
+	end
+	local cover = m.Cover
+	if cover and now < cover.RecheckAt and cover.Box.Parent then
+		return cover
+	end
+	local box, sign = MonsterNav.FindCover(m, threatPos, m.Cfg.Ranged.Range)
+	if not box then
+		m.Cover = nil
+		m.NoCoverUntil = now + 1
+		return nil
+	end
+	if cover and cover.Box == box then
+		cover.RecheckAt = now + 1.5
+		return cover
+	end
+	cover = { Box = box, Sign = sign, RecheckAt = now + 1.5, Deadline = now + Config.AI.CoverGiveUpTime }
+	m.Cover = cover
+	return cover
+end
+
+local function abandonCover(m, now)
+	m.Cover = nil
+	m.NoCoverUntil = now + 8
+end
+
+-- เป้าคือผู้เล่น: ถ้ามีที่กำบังใกล้ตัว หลบหลังที่กำบังระหว่างบรรจุ -> โผล่ออกมาเล็งยิง -> กลับไปหลบ
+-- ไม่มีที่กำบัง: ยืนยิงกลางแจ้ง; เป้าอยู่บนกำแพง: เข้ามาในระยะยิงแต่ไม่ปีนขึ้นไปหา
+local function updateRangedVsPlayer(m, now, targetRoot)
+	local ranged = m.Cfg.Ranged
+	local pos = m.Root.Position
+	local targetPos = targetRoot.Position
+	local inRange = (targetPos - pos).Magnitude <= ranged.Range
+	local canShoot = inRange and hasLineOfSight(eyePosition(m), targetPos)
+	local ready = now >= m.NextAttack
+
+	local cover = currentCover(m, now, targetPos)
+	if cover then
+		m.BlindSince = nil
+		local hide, peek = MonsterNav.CoverSpots(cover.Box, targetPos, cover.Sign, pos.Y)
+		if now >= cover.Deadline then
+			abandonCover(m, now)
+		elseif ready then
+			if flat(peek - pos).Magnitude > 2 then
+				MonsterNav.MoveTo(m, peek, now)
+				return
+			elseif canShoot then
+				cover.Deadline = now + Config.AI.CoverGiveUpTime + ranged.AimTime + ranged.Cooldown
+				startAiming(m, now, m.Target, targetPos)
+				return
+			end
+			abandonCover(m, now) -- โผล่แล้วยังยิงไม่ได้
+		else
+			if flat(hide - pos).Magnitude > 1.5 then
+				MonsterNav.MoveTo(m, hide, now)
+			else
+				cover.Deadline = now + Config.AI.CoverGiveUpTime + ranged.Cooldown
+				stop(m)
+				face(m, targetPos, ranged.BodyYaw)
+			end
+			return
+		end
+	end
+
+	if canShoot then
+		m.BlindSince = nil
+		if ready then
+			startAiming(m, now, m.Target, targetPos)
+		else
+			stop(m) -- กำลังบรรจุ
+			face(m, targetPos, ranged.BodyYaw)
+		end
+		return
+	end
+
+	if MonsterNav.IsElevated(targetPos) and not MonsterNav.IsElevated(pos) then
+		local toMonster = flat(pos - targetPos)
+		local arrived = toMonster.Magnitude <= Config.AI.ElevatedStandOff + 2
+		local moving = true
+		if arrived then
+			stop(m)
+			face(m, targetPos, ranged.BodyYaw)
+		else
+			local standOff = Vector3.new(targetPos.X, pos.Y, targetPos.Z) + toMonster.Unit * Config.AI.ElevatedStandOff
+			moving = MonsterNav.MoveTo(m, standOff, now)
+		end
+		-- เข้ามาถึงระยะแล้วแต่ยังยิงคนบนกำแพงไม่ได้นานเกินไป (หลบหลังเชิงเทิน/เดินไปไม่ถึง) -> เลิกสนใจชั่วคราว กลับไปหาฐาน
+		if inRange or arrived or not moving then
+			m.BlindSince = m.BlindSince or now
+			if now - m.BlindSince >= Config.AI.BlindGiveUpTime then
+				m.IgnorePlayer, m.IgnoreUntil = m.Target, now + 6
+				m.Target, m.BlindSince = nil, nil
+			end
+		else
+			m.BlindSince = nil
+		end
+	else
+		m.BlindSince = nil
+		MonsterNav.MoveTo(m, targetPos, now) -- เข้าไปให้ถึงระยะ/มองเห็น
+	end
+end
+
 local function updateRanged(m, now)
 	local ranged = m.Cfg.Ranged
 	local pos = m.Root.Position
@@ -650,15 +779,16 @@ local function updateRanged(m, now)
 		return
 	end
 
-	-- เป้าหมายผู้เล่น: คนที่ตีตัวเอง หรือคนที่มองเห็นในระยะยิง
-	local targetRoot = validateTarget(m, math.max(Config.AI.LeashRange, ranged.Range))
+	-- เป้าหมายผู้เล่น: คนที่ตีตัวเอง หรือคนที่มองเห็นในรัศมีค้นหา (DetectRange)
+	local detectRange = ranged.DetectRange or ranged.Range
+	local targetRoot = validateTarget(m, math.max(Config.AI.LeashRange, detectRange))
 	if not targetRoot then
 		local bestDist
 		for _, player in Players:GetPlayers() do
 			local char, _, root = PlayerService.GetCharacterParts(player)
-			if char then
+			if char and not (m.IgnorePlayer == player and now < m.IgnoreUntil) then
 				local dist = (root.Position - pos).Magnitude
-				if dist <= ranged.Range and (not bestDist or dist < bestDist) and hasLineOfSight(eye, root.Position) then
+				if dist <= detectRange and (not bestDist or dist < bestDist) and hasLineOfSight(eye, root.Position) then
 					m.Target, targetRoot, bestDist = player, root, dist
 				end
 			end
@@ -666,19 +796,10 @@ local function updateRanged(m, now)
 	end
 
 	if targetRoot then
-		local dist = (targetRoot.Position - pos).Magnitude
-		if dist <= ranged.Range and hasLineOfSight(eye, targetRoot.Position) then
-			if now >= m.NextAttack then
-				startAiming(m, now, m.Target, targetRoot.Position)
-			else
-				stop(m) -- กำลังบรรจุ
-				face(m, targetRoot.Position, ranged.BodyYaw)
-			end
-		else
-			m.Hum:MoveTo(targetRoot.Position) -- เข้าไปให้ถึงระยะ/มองเห็น
-		end
+		updateRangedVsPlayer(m, now, targetRoot)
 		return
 	end
+	m.Cover = nil
 
 	-- เป้าหลัก = ฐาน: เข้ามาในระยะแล้วยืนยิง
 	local dist = distanceToBase(m)
@@ -689,7 +810,7 @@ local function updateRanged(m, now)
 			stop(m)
 		end
 	else
-		moveTowardBase(m)
+		moveTowardBase(m, now)
 	end
 end
 
