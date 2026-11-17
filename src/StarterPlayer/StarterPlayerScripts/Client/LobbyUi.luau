@@ -4,6 +4,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("GameConfig"))
@@ -175,7 +176,7 @@ function LobbyUi.Init(options)
 	rightButton = button({ Size = UDim2.fromOffset(40, 40), Position = UDim2.new(1, -54, 0, 40), Text = "▶", TextSize = 20, BackgroundColor3 = Color3.fromRGB(55, 58, 66) }, panel)
 	stageLabel = text({ Size = UDim2.new(1, -120, 0, 40), Position = UDim2.fromOffset(60, 40), Text = "", TextSize = 28 }, panel)
 	stageHint = text({ Size = UDim2.new(1, -20, 0, 20), Position = UDim2.fromOffset(10, 84), Text = "", TextSize = 14, TextColor3 = Color3.fromRGB(200, 200, 200) }, panel)
-	playButton = button({ Size = UDim2.new(1, -28, 0, 52), Position = UDim2.fromOffset(14, 110), Text = "เล่น", TextSize = 28, BackgroundColor3 = Color3.fromRGB(70, 160, 80) }, panel)
+	playButton = button({ Size = UDim2.new(1, -28, 0, 52), Position = UDim2.fromOffset(14, 110), Text = touch and "เล่น" or "เล่น (K)", TextSize = 28, BackgroundColor3 = Color3.fromRGB(70, 160, 80) }, panel)
 	statusLabel = text({ Size = UDim2.new(1, -20, 0, 24), Position = UDim2.fromOffset(10, 166), Text = "", TextSize = 14, TextWrapped = true, TextColor3 = Color3.fromRGB(255, 200, 120) }, panel)
 
 	leftButton.Activated:Connect(function()
@@ -186,6 +187,12 @@ function LobbyUi.Init(options)
 	end)
 	playButton.Activated:Connect(function()
 		if playButton.Active then
+			task.spawn(play)
+		end
+	end)
+	-- คอม: เมาส์ถูกล็อกกลางจอ จึงใช้ปุ่ม K เริ่มด่านที่เลือกอยู่
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if not processed and input.KeyCode == Enum.KeyCode.K and gui.Enabled and playButton.Active then
 			task.spawn(play)
 		end
 	end)
