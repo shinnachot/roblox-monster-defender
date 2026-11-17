@@ -224,7 +224,7 @@ local function updatePickups(now)
 		else
 			local position = model:GetPivot().Position
 			for _, player in Players:GetPlayers() do
-				local char, _, root = PlayerService.GetCharacterParts(player)
+				local char, _, root = PlayerService.GetTargetParts(player)
 				if char and flat(root.Position - position).Magnitude <= Config.Pickup.Range then
 					player:SetAttribute("Arrows", (player:GetAttribute("Arrows") or 0) + pickup.Arrows)
 					Remotes.WorldSound:FireAllClients("Pickup", position)
@@ -369,7 +369,7 @@ local function findBlockingPlayer(m)
 	local look = flat(m.Root.CFrame.LookVector)
 	local best, bestDist
 	for _, player in Players:GetPlayers() do
-		local char, _, root = PlayerService.GetCharacterParts(player)
+		local char, _, root = PlayerService.GetTargetParts(player)
 		if char then
 			local to = flat(root.Position - pos)
 			local dist = to.Magnitude
@@ -390,7 +390,7 @@ local function validateTarget(m, leash)
 	if not m.Target then
 		return nil
 	end
-	local char, _, root = PlayerService.GetCharacterParts(m.Target)
+	local char, _, root = PlayerService.GetTargetParts(m.Target)
 	if char and (MonsterNav.IsElevated(root.Position) or flat(root.Position - m.Root.Position).Magnitude <= leash) then
 		return root
 	end
@@ -433,7 +433,7 @@ local function meleeAttack(m, now, targetPlayer, targetPos)
 			local look = flat(m.Root.CFrame.LookVector).Unit
 			local minDot = math.cos(math.rad(cfg.Sweep.ArcDegrees / 2))
 			for _, player in Players:GetPlayers() do
-				local char, _, root = PlayerService.GetCharacterParts(player)
+				local char, _, root = PlayerService.GetTargetParts(player)
 				if char then
 					local to = flat(root.Position - origin)
 					local sameLevel = math.abs(root.Position.Y - origin.Y) <= Config.AI.MeleeHeightReach + 3
@@ -446,7 +446,7 @@ local function meleeAttack(m, now, targetPlayer, targetPos)
 				BaseService.Damage(math.round(cfg.BaseDamage * m.DamageScale))
 			end
 		elseif targetPlayer then
-			local char, _, root = PlayerService.GetCharacterParts(targetPlayer)
+			local char, _, root = PlayerService.GetTargetParts(targetPlayer)
 			if char
 				and flat(root.Position - origin).Magnitude <= cfg.AttackRange + 2
 				and math.abs(root.Position.Y - origin.Y) <= Config.AI.MeleeHeightReach
@@ -513,7 +513,7 @@ local function updateBoss(m, now)
 	-- Boss ไม่โจมตีคนบนกำแพง: ข้ามไปเลือกคนบนพื้น ถ้าไม่มีใครอยู่บนพื้นเลยก็ไปตีฐาน
 	local best, bestScore
 	for _, player in Players:GetPlayers() do
-		local char, _, root = PlayerService.GetCharacterParts(player)
+		local char, _, root = PlayerService.GetTargetParts(player)
 		if char and not MonsterNav.IsElevated(root.Position) then
 			local dealt = m.DamageBy[player] or 0
 			local dist = flat(root.Position - m.Root.Position).Magnitude
@@ -760,7 +760,7 @@ local function updateRanged(m, now)
 	if m.AimUntil then
 		local targetPos
 		if m.AimPlayer then
-			local char, _, root = PlayerService.GetCharacterParts(m.AimPlayer)
+			local char, _, root = PlayerService.GetTargetParts(m.AimPlayer)
 			if not char then
 				stopAiming(m) -- เป้าล้ม/หายไป
 				return
@@ -785,7 +785,7 @@ local function updateRanged(m, now)
 	if not targetRoot then
 		local bestDist
 		for _, player in Players:GetPlayers() do
-			local char, _, root = PlayerService.GetCharacterParts(player)
+			local char, _, root = PlayerService.GetTargetParts(player)
 			if char and not (m.IgnorePlayer == player and now < m.IgnoreUntil) then
 				local dist = (root.Position - pos).Magnitude
 				if dist <= detectRange and (not bestDist or dist < bestDist) and hasLineOfSight(eye, root.Position) then

@@ -16,6 +16,7 @@ Studio คือต้นฉบับของโค้ด (GDD ข้อ 0) โ
 | Goblin (R15) | 16317433513 |
 | คริสตัลฐาน | 99829008230184 |
 | ป้อม — เหลือใช้แค่หลังคาป้อมมุม 4 หลัง (กำแพงสร้างใหม่จาก Part ใน `Map.Fort`) | 91733327096845 |
+| ชั้นวางอาวุธ (คลังอาวุธใน Lobby) | 117098692227056 |
 | ต้นไม้ (Low Poly Tree Pack) — ต้นแบบเก็บใน `ServerStorage.TreeTemplates` | 15217079919 |
 | Skeleton (R15) — Skeleton Archer | 94271026740769 |
 | Orc (R15) — Orc Brute และ Boss Orc Warlord | 71129266059717 |
@@ -36,12 +37,13 @@ Animation (สร้างด้วย `generate_animation`, อยู่ใน�
 
 เสียง: ดู `ReplicatedStorage.Assets.Sounds` ใน Studio (id อยู่ใน SoundId ของแต่ละตัว) — ShieldBlock = 9125740352
 
-## ทดสอบ (เฟส 2)
+## ทดสอบ
 
-ยังไม่มี lobby: ชนะแล้วไปด่านถัดไป แพ้แล้วเล่นด่านเดิมซ้ำ ข้ามไปด่าน/คลื่นที่ต้องการได้โดยตั้ง attribute บน `Workspace` ก่อนกด Play:
+ผู้เล่นเกิดที่ Lobby (`Workspace.Lobby`, หลังป้อม Z≈330) กด **เล่น** เพื่อเข้าแมตช์ที่ป้อม จบแมตช์แล้วกลับ Lobby เอง
+server นี้มีป้อมเดียว จึงเล่นได้ทีละแมตช์ (เฟส 4 ย้ายแมตช์ไป reserved server) ตั้ง attribute บน `Workspace` ก่อนกด Play ได้:
 
-- `DebugStage` (number 1–5) — แมตช์ถัดไปเริ่มที่ด่านนี้
-- `DebugWave` (number 1–5) — เริ่มที่คลื่นนี้ (5 = Boss)
+- `DebugUnlockAll` (bool) — เลือกด่านที่ยังไม่ปลดล็อคได้ (ใช้ได้เฉพาะใน Studio)
+- `DebugWave` (number 1–5) — แมตช์ถัดไปเริ่มที่คลื่นนี้ (5 = Boss)
 
 ## ข้อมูลผู้เล่น (เฟส 3)
 

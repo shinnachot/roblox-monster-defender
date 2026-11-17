@@ -14,7 +14,6 @@ local DataService = require(script.Parent.DataService)
 local ProgressionService = {}
 
 local rng = Random.new()
-local IN_MATCH_PHASES = { Countdown = true, Wave = true, Break = true }
 local REQUEST_COOLDOWN = 0.25
 local lastRequest = {}
 
@@ -27,8 +26,9 @@ local function throttled(player)
 	return false
 end
 
-function ProgressionService.InMatch()
-	return IN_MATCH_PHASES[workspace:GetAttribute("MatchPhase")] == true
+-- จัด loadout ได้เฉพาะตอนอยู่ Lobby (เข้าด่านแล้วล็อค)
+function ProgressionService.InMatch(player)
+	return player:GetAttribute("InMatch") == true
 end
 
 -- แจกรางวัลให้ผู้เล่นหนึ่งคน (หีบสุ่มแยกกันทุกคน) — เซฟทันที
@@ -38,6 +38,7 @@ function ProgressionService.AwardMatch(player, stage, won)
 		return nil
 	end
 	local expBefore = data.Exp
+	local unlockedBefore = data.UnlockedStage
 	local reward = Progression.RollMatchReward(data.Exp, data.UnlockedStage, stage, won, rng)
 	DataService.Update(player, function(d)
 		d.Exp = reward.Exp
@@ -56,13 +57,14 @@ function ProgressionService.AwardMatch(player, stage, won)
 		Rank = Progression.Rank(reward.Exp).Id,
 		Parts = reward.Parts,
 		UnlockedStage = reward.UnlockedStage,
+		UnlockedBefore = unlockedBefore,
 	}
 	ReplicatedStorage.Remotes.MatchRewards:FireClient(player, summary)
 	return summary
 end
 
-function ProgressionService.AwardAll(stage, won)
-	for _, player in Players:GetPlayers() do
+function ProgressionService.AwardAll(stage, won, participants)
+	for _, player in participants do
 		task.spawn(ProgressionService.AwardMatch, player, stage, won)
 	end
 end
@@ -71,7 +73,7 @@ local function setLoadout(player, loadout)
 	if throttled(player) then
 		return false, "Busy"
 	end
-	if ProgressionService.InMatch() then
+	if ProgressionService.InMatch(player) then
 		return false, "InMatch"
 	end
 	local data = DataService.Get(player)

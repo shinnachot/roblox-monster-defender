@@ -1,11 +1,13 @@
 -- WaveService: วงจรแมตช์ — 1 แมตช์ = 1 stage = 5 wave (wave 5 มี Boss)
 -- สถานะแมตช์เผยแพร่เป็น attribute บน workspace:
---   MatchPhase (Waiting/Countdown/Wave/Break/Victory/Defeat), Stage, StageCount, Wave, WaveCount,
---   PhaseEndsAt, MonstersLeft, DefeatReason (Base/Team), MatchTime, NextStage
+--   MatchPhase (Lobby/Countdown/Wave/Break/Victory/Defeat), Stage, StageCount, Wave, WaveCount,
+--   PhaseEndsAt, MonstersLeft, DefeatReason (Base/Team), MatchTime
 -- แพ้เมื่อ HP ฐาน = 0 หรือผู้เล่นทั้งทีมล้มพร้อมกัน (GDD ข้อ 6)
--- เฟส 2 ยังไม่มี lobby: ชนะ -> ไป stage ถัดไป, แพ้ -> เล่น stage เดิมซ้ำ
--- ทดสอบ: ตั้ง attribute workspace.DebugStage = เลข stage เพื่อเริ่มแมตช์ถัดไปที่ stage นั้น,
---          workspace.DebugWave = เลข wave เพื่อข้ามไปเริ่มที่ wave นั้น
+-- เฟส 3: ผู้เล่นอยู่ที่ Lobby กด Play (Remotes.StartMatch(stage)) -> ย้ายไปป้อมแล้วเริ่มแมตช์
+--   จบแมตช์ -> แจกรางวัล -> กลับ Lobby; server นี้มีป้อมเดียว จึงเล่นได้ทีละแมตช์ (เฟส 4 ย้ายไป reserved server)
+--   ผู้เล่นในแมตช์มี attribute InMatch = true
+-- ทดสอบ: ตั้ง attribute workspace.DebugWave = เลข wave เพื่อข้ามไปเริ่มที่ wave นั้น,
+--          workspace.DebugUnlockAll = true เพื่อเลือก stage ที่ยังไม่ปลดล็อคได้ (เฉพาะใน Studio)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -15,6 +17,8 @@ local PlayerService = require(script.Parent.PlayerService)
 local MonsterService = require(script.Parent.MonsterService)
 local BaseService = require(script.Parent.BaseService)
 local ProgressionService = require(script.Parent.ProgressionService)
+local DataService = require(script.Parent.DataService)
+local RunService = game:GetService("RunService")
 
 local WaveService = {}
 
@@ -26,6 +30,15 @@ local function setPhase(phase, duration)
 	workspace:SetAttribute("MatchPhase", phase)
 end
 
+local function participantsLeft()
+	for _, player in Players:GetPlayers() do
+		if PlayerService.InMatch(player) then
+			return true
+		end
+	end
+	return false
+end
+
 -- คืนเหตุผลที่แพ้ ("Base" / "Team") หรือ nil ถ้ายังไม่แพ้
 local function defeatReason()
 	if BaseService.GetHP() <= 0 then
@@ -33,6 +46,9 @@ local function defeatReason()
 	end
 	if PlayerService.AllDowned() then
 		return "Team"
+	end
+	if not participantsLeft() then
+		return "Abandoned" -- ทุกคนออกเกมกลางแมตช์
 	end
 	return nil
 end
@@ -48,13 +64,30 @@ local function waitSeconds(seconds)
 	end
 end
 
-local function anyPlayerReady()
-	for _, player in Players:GetPlayers() do
-		if PlayerService.GetCharacterParts(player) then
-			return true
-		end
+local pendingRequest = nil -- { Player, Stage }
+local matchRunning = false
+
+-- Play จาก Lobby: คืน (ok, reason)
+local function onStartMatch(player, stage)
+	if matchRunning or pendingRequest then
+		return false, "Busy"
 	end
-	return false
+	if typeof(stage) ~= "number" or not Config.Waves.Stages[stage] then
+		return false, "Invalid"
+	end
+	local data = DataService.Get(player)
+	if not data then
+		return false, "NotLoaded"
+	end
+	local unlockAll = RunService:IsStudio() and workspace:GetAttribute("DebugUnlockAll") == true
+	if stage > data.UnlockedStage and not unlockAll then
+		return false, "Locked"
+	end
+	if not PlayerService.GetCharacterParts(player) then
+		return false, "NoCharacter"
+	end
+	pendingRequest = { Player = player, Stage = stage }
+	return true
 end
 
 local function spawnPosition()
@@ -107,25 +140,23 @@ local function runWave(waveDef, scale, options)
 end
 
 -- คืน true ถ้าชนะ
-local function runMatch(stage)
+local function runMatch(stage, participants)
 	local waves = Config.Waves.Stages[stage]
 	BaseService.Reset()
 	MonsterService.ClearAll()
-	PlayerService.ResetMatch()
 	workspace:SetAttribute("Stage", stage)
 	workspace:SetAttribute("StageCount", #Config.Waves.Stages)
 	workspace:SetAttribute("WaveCount", #waves)
 	workspace:SetAttribute("Wave", 1)
 	workspace:SetAttribute("MonstersLeft", 0)
 	workspace:SetAttribute("DefeatReason", nil)
-
-	setPhase("Waiting")
-	while not anyPlayerReady() do
-		task.wait(0.5)
+	workspace:SetAttribute("BossHP", nil)
+	workspace:SetAttribute("BossMaxHP", nil)
+	for _, player in participants do
+		PlayerService.EnterMatch(player)
 	end
-	PlayerService.ResetMatch()
 
-	local playerCount = math.clamp(#Players:GetPlayers(), 1, #Config.Waves.PlayerScale)
+	local playerCount = math.clamp(#participants, 1, #Config.Waves.PlayerScale)
 	local scale = Config.Waves.PlayerScale[playerCount]
 	local options = { Stage = stage, PlayerCount = playerCount }
 
@@ -156,33 +187,57 @@ local function runMatch(stage)
 
 	local reason = defeatReason()
 	local won = reason == nil
-	local nextStage = won and (stage % #Config.Waves.Stages + 1) or stage
 	workspace:SetAttribute("DefeatReason", reason)
 	workspace:SetAttribute("MatchTime", math.floor(os.clock() - startedAt))
-	workspace:SetAttribute("NextStage", nextStage)
 	setPhase(won and "Victory" or "Defeat", Config.Waves.ResultTime)
-	ProgressionService.AwardAll(stage, won)
+	local remaining = {}
+	for _, player in participants do
+		if player.Parent and PlayerService.InMatch(player) then
+			table.insert(remaining, player)
+		end
+	end
+	ProgressionService.AwardAll(stage, won, remaining)
 	MonsterService.ClearAll()
 	task.wait(Config.Waves.ResultTime)
-	return nextStage
+end
+
+local function returnToLobby()
+	MonsterService.ClearAll()
+	BaseService.Reset()
+	for _, player in Players:GetPlayers() do
+		if PlayerService.InMatch(player) then
+			PlayerService.LeaveMatch(player)
+		end
+	end
+	workspace:SetAttribute("BossHP", nil)
+	workspace:SetAttribute("BossMaxHP", nil)
+	setPhase("Lobby")
 end
 
 function WaveService.Start()
+	local remote = Instance.new("RemoteFunction")
+	remote.Name = "StartMatch"
+	remote.Parent = ReplicatedStorage.Remotes
+	remote.OnServerInvoke = onStartMatch
+	workspace:SetAttribute("StageCount", #Config.Waves.Stages)
+	setPhase("Lobby")
+
 	task.spawn(function()
-		local stage = 1
 		while true do
-			local debugStage = workspace:GetAttribute("DebugStage")
-			if typeof(debugStage) == "number" and Config.Waves.Stages[debugStage] then
-				stage = debugStage
-				workspace:SetAttribute("DebugStage", nil)
+			while not pendingRequest do
+				task.wait(0.2)
 			end
-			local ok, result = pcall(runMatch, stage)
-			if ok then
-				stage = result
-			else
-				warn("[WaveService] match error:", result)
-				task.wait(3)
+			local request = pendingRequest
+			matchRunning = true
+			pendingRequest = nil
+			if request.Player.Parent then
+				local ok, err = pcall(runMatch, request.Stage, { request.Player })
+				if not ok then
+					warn("[WaveService] match error:", err)
+				end
 			end
+			pcall(returnToLobby)
+			matchRunning = false
 		end
 	end)
 end

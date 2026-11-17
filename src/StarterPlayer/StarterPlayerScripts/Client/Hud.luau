@@ -41,6 +41,8 @@ local reviveCandidate -- เพื่อนที่ล้มอยู่ใก�
 local rollOverlay, rollLabel
 local hurtEdges = {}
 local slots = {}
+local matchTop, baseBack -- ส่วนที่แสดงเฉพาะตอนอยู่ในแมตช์
+local lastReward -- รางวัลแมตช์ล่าสุด (Remotes.MatchRewards)
 local rollReadyAt = 0
 local rollDuration = 1
 
@@ -141,6 +143,7 @@ function Hud.Init(options)
 
 	-- บน: wave + สถานะ + HP ฐาน
 	local top = make("Frame", { Size = UDim2.fromOffset(420, 130), Position = UDim2.new(0.5, 0, 0, 44), AnchorPoint = Vector2.new(0.5, 0), BackgroundTransparency = 1 }, gui)
+	matchTop = top
 	waveLabel = text({ Size = UDim2.new(1, 0, 0, 32), Text = "", TextSize = 28 }, top)
 	statusLabel = text({ Size = UDim2.new(1, 0, 0, 24), Position = UDim2.fromOffset(0, 32), Text = "", TextSize = 19, TextColor3 = Color3.fromRGB(230, 230, 230) }, top)
 	bossFill, bossLabel, bossBack = bar(top, UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 62), Vector2.zero, Color3.fromRGB(190, 45, 45))
@@ -149,7 +152,7 @@ function Hud.Init(options)
 	-- ล่างซ้าย: HP ผู้เล่น
 	-- ขวาบน: HP คริสตัล (ฐาน) ขนาดเท่าแถบ HP ผู้เล่น
 	local barSize = touch and UDim2.fromOffset(180, 22) or UDim2.fromOffset(220, 24)
-	baseFill, baseLabel = bar(gui, barSize, UDim2.new(1, -24, 0, 64), Vector2.new(1, 0), Color3.fromRGB(70, 170, 255))
+	baseFill, baseLabel, baseBack = bar(gui, barSize, UDim2.new(1, -24, 0, 64), Vector2.new(1, 0), Color3.fromRGB(70, 170, 255))
 
 	-- ซ้ายบน: แถบเกราะ (บาง สีน้ำเงิน ไม่มีตัวเลข) แล้วตามด้วยแถบ HP
 	local armorSize = UDim2.new(barSize.X, UDim.new(0, 10))
@@ -184,7 +187,11 @@ function Hud.Init(options)
 	bannerTitle = text({ Size = UDim2.new(1, 0, 0, 84), Position = UDim2.fromOffset(0, 14), Text = "", TextSize = 68 }, banner)
 	bannerSub = text({ Size = UDim2.new(1, 0, 0, 32), Position = UDim2.fromOffset(0, 102), Text = "", TextSize = 22, TextColor3 = Color3.fromRGB(230, 230, 230) }, banner)
 	-- สรุปผล: สถิติของผู้เล่นแต่ละคน + นับถอยหลัง
-	bannerStats = text({ Size = UDim2.new(1, 0, 0, 120), Position = UDim2.fromOffset(0, 140), Text = "", TextSize = 20, TextYAlignment = Enum.TextYAlignment.Top, TextColor3 = Color3.fromRGB(235, 235, 235) }, banner)
+	ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("MatchRewards").OnClientEvent:Connect(function(summary)
+		lastReward = summary
+	end)
+	banner.Size = UDim2.new(1, 0, 0, 330)
+	bannerStats = text({ Size = UDim2.new(1, 0, 0, 180), Position = UDim2.fromOffset(0, 140), Text = "", TextSize = 20, TextYAlignment = Enum.TextYAlignment.Top, TextColor3 = Color3.fromRGB(235, 235, 235) }, banner)
 
 	-- ล้ม: ข้อความกลางจอส่วนล่าง
 	downedFrame = make("Frame", { Size = UDim2.fromOffset(520, 80), Position = UDim2.fromScale(0.5, 0.7), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = Color3.fromRGB(60, 0, 0), BackgroundTransparency = 0.35, BorderSizePixel = 0, Visible = false }, gui)
@@ -225,6 +232,25 @@ function Hud.Init(options)
 	Hud.Refresh()
 end
 
+-- ข้อความรางวัล: EXP, rank up, ปลดล็อคด่าน, ชิ้นส่วนจากหีบ
+function Hud.FormatReward(r)
+	local parts = {}
+	for id, count in r.Parts do
+		local item = Config.Items[id]
+		table.insert(parts, string.format("%s ×%d", item and item.Name or id, count))
+	end
+	table.sort(parts)
+	local expText = r.ExpDelta >= 0 and string.format("EXP +%d", r.ExpDelta) or string.format("EXP %d", r.ExpDelta)
+	local line = string.format("%s  (รวม %d)   หีบ: %s", expText, r.Exp, #parts > 0 and table.concat(parts, ", ") or "-")
+	if r.Rank ~= r.RankBefore then
+		line ..= string.format("\n⭐ เลื่อนแรงก์เป็น %s!", r.Rank)
+	end
+	if r.UnlockedStage > (r.UnlockedBefore or r.UnlockedStage) then
+		line ..= string.format("\nปลดล็อคด่าน %d แล้ว", r.UnlockedStage)
+	end
+	return line
+end
+
 local function secondsLeft()
 	local endsAt = workspace:GetAttribute("PhaseEndsAt") or 0
 	return math.max(0, math.ceil(endsAt - workspace:GetServerTimeNow()))
@@ -237,8 +263,14 @@ function Hud.Refresh()
 	local stage = workspace:GetAttribute("Stage") or 1
 	waveLabel.Text = string.format("ด่าน %d — คลื่นที่ %d / %d", stage, wave, waveCount)
 
+	local inMatch = player:GetAttribute("InMatch") == true
+	matchTop.Visible = inMatch
+	baseBack.Visible = inMatch
 	local showBanner = false
-	if phase == "Countdown" then
+	if not inMatch then
+		statusLabel.Text = ""
+		lastReward = (phase == "Victory" or phase == "Defeat") and lastReward or nil
+	elseif phase == "Countdown" then
 		statusLabel.Text = string.format("มอนสเตอร์จะบุกใน %d วิ", secondsLeft())
 	elseif phase == "Wave" then
 		statusLabel.Text = string.format("มอนสเตอร์เหลือ %d ตัว", workspace:GetAttribute("MonstersLeft") or 0)
@@ -247,27 +279,27 @@ function Hud.Refresh()
 	elseif phase == "Victory" or phase == "Defeat" then
 		showBanner = true
 		statusLabel.Text = ""
-		local nextStage = workspace:GetAttribute("NextStage") or stage
 		local matchTime = workspace:GetAttribute("MatchTime") or 0
 		local footer
 		if phase == "Victory" then
 			bannerTitle.Text = "ชนะ!"
 			bannerTitle.TextColor3 = ACCENT
 			bannerSub.Text = string.format("ป้องกันคริสตัลสำเร็จ — ด่าน %d", stage)
-			if nextStage > stage then
-				footer = string.format("ไปด่าน %d ใน %d วิ", nextStage, secondsLeft())
-			else
-				footer = string.format("ผ่านครบทุกด่านแล้ว — กลับไปด่าน %d ใน %d วิ", nextStage, secondsLeft())
-			end
 		else
 			bannerTitle.Text = "แพ้..."
 			bannerTitle.TextColor3 = Color3.fromRGB(235, 70, 60)
 			local reason = workspace:GetAttribute("DefeatReason")
 			bannerSub.Text = reason == "Team" and "ทั้งทีมล้มพร้อมกัน" or "คริสตัลถูกทำลาย"
-			footer = string.format("เล่นด่าน %d อีกครั้งใน %d วิ", nextStage, secondsLeft())
 		end
+		footer = string.format("กลับ Lobby ใน %d วิ", secondsLeft())
 		local lines = { string.format("เวลา %d:%02d", matchTime // 60, matchTime % 60) }
+		if lastReward then
+			table.insert(lines, Hud.FormatReward(lastReward))
+		end
 		for _, other in Players:GetPlayers() do
+			if other:GetAttribute("InMatch") ~= true then
+				continue
+			end
 			table.insert(lines, string.format("%s   สังหาร %d   ดาเมจ %d   ล้ม %d ครั้ง", other.DisplayName,
 				other:GetAttribute("StatKills") or 0, other:GetAttribute("StatDamage") or 0, other:GetAttribute("StatDowns") or 0))
 		end

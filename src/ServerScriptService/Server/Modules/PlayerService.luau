@@ -50,6 +50,19 @@ function PlayerService.GetCharacterPartsAny(player)
 	return char, hum, root
 end
 
+-- อยู่ในแมตช์ (ที่ป้อม) หรืออยู่ Lobby
+function PlayerService.InMatch(player)
+	return states[player] ~= nil and player:GetAttribute("InMatch") == true
+end
+
+-- เป้าที่ monster เล็งได้: อยู่ในแมตช์และยังไม่ล้ม
+function PlayerService.GetTargetParts(player)
+	if not PlayerService.InMatch(player) then
+		return nil
+	end
+	return PlayerService.GetCharacterParts(player)
+end
+
 -- เฉพาะผู้เล่นที่ยังสู้ได้ (ไม่ล้ม): ใช้ตรวจก่อนโจมตี และใช้เป็นเป้าของ monster
 -- (monster ไม่ตีผู้เล่นที่ล้มอยู่ — GDD ข้อ 7)
 function PlayerService.GetCharacterParts(player)
@@ -211,6 +224,9 @@ end
 function PlayerService.AllDowned()
 	local anyDowned = false
 	for player, st in states do
+		if not PlayerService.InMatch(player) then
+			continue
+		end
 		if st.Downed then
 			anyDowned = true
 		elseif PlayerService.GetCharacterPartsAny(player) then
@@ -241,10 +257,26 @@ local function refillArmor(player)
 end
 
 -- จบ wave: คนที่ไม่มีใครชุบ respawn ที่ฐาน (ได้เกราะใหม่)
+local function fortSpawn()
+	return workspace.Map:FindFirstChild("FortSpawn")
+end
+
+local function lobbySpawn()
+	return workspace:FindFirstChild("Lobby") and workspace.Lobby:FindFirstChild("LobbySpawn")
+end
+
+local function moveTo(player, spawnPart)
+	local char = player.Character
+	if char and spawnPart then
+		local offset = Vector3.new(math.random(-3, 3), 3, math.random(-3, 3))
+		char:PivotTo(CFrame.new(spawnPart.Position + offset) * spawnPart.CFrame.Rotation)
+	end
+end
+
 function PlayerService.RespawnDowned()
-	local spawn = workspace.Map:FindFirstChildWhichIsA("SpawnLocation")
+	local spawn = fortSpawn()
 	for player, st in states do
-		if st.Downed then
+		if st.Downed and PlayerService.InMatch(player) then
 			PlayerService.Revive(player, 1)
 			refillArmor(player)
 			local char = player.Character
@@ -376,10 +408,34 @@ function PlayerService.ResetPlayer(player)
 	end
 end
 
-function PlayerService.ResetMatch()
-	for _, player in Players:GetPlayers() do
-		PlayerService.ResetPlayer(player)
+-- เข้าแมตช์: ย้ายไปป้อม + รีเซ็ตสถานะ
+function PlayerService.EnterMatch(player)
+	if not states[player] then
+		return
 	end
+	player:SetAttribute("InMatch", true)
+	PlayerService.ResetPlayer(player)
+	moveTo(player, fortSpawn())
+end
+
+-- กลับ Lobby: ลุกขึ้น HP/เกราะ/ลูกธนูเต็ม (สถิติแมตช์เก็บไว้ดูจนเริ่มแมตช์ใหม่)
+function PlayerService.LeaveMatch(player)
+	local st = states[player]
+	if not st then
+		return
+	end
+	player:SetAttribute("InMatch", false)
+	stopReviving(player)
+	if st.Downed then
+		PlayerService.Revive(player, 1)
+	end
+	local char, hum = PlayerService.GetCharacterPartsAny(player)
+	if char then
+		hum.Health = hum.MaxHealth
+	end
+	player:SetAttribute("Arrows", Config.Weapons.Bow.Ammo + Config.DefaultLoadout.ExtraArrows)
+	refillArmor(player)
+	moveTo(player, lobbySpawn())
 end
 
 local function onCharacterAdded(player, char)
@@ -398,6 +454,13 @@ local function onCharacterAdded(player, char)
 	st.Downed = false
 	player:SetAttribute("Downed", false)
 	player:SetAttribute("ReviveEndsAt", nil)
+	if PlayerService.InMatch(player) then
+		-- เกิดใหม่ระหว่างแมตช์ (เช่น reset ตัวละคร): กลับมาที่ป้อม ไม่ใช่ Lobby
+		local root = char:WaitForChild("HumanoidRootPart", 10)
+		if root then
+			task.defer(moveTo, player, fortSpawn())
+		end
+	end
 	char:WaitForChild("RightHand", 10)
 	char:WaitForChild("LeftHand", 10)
 	PlayerService.Equip(player, st.Equipped or Config.DefaultLoadout.Weapons[1])
@@ -405,6 +468,7 @@ end
 
 local function onPlayerAdded(player)
 	states[player] = newState()
+	player:SetAttribute("InMatch", false)
 	player:SetAttribute("Arrows", Config.Weapons.Bow.Ammo + Config.DefaultLoadout.ExtraArrows)
 	player:SetAttribute("Downed", false)
 	for _, name in STAT_NAMES do

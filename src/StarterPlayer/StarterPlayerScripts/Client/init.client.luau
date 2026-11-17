@@ -21,6 +21,7 @@ local ShieldGuard = require(script:WaitForChild("ShieldGuard"))
 local MeleeFx = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("MeleeFx"))
 local SlashPose = require(script:WaitForChild("SlashPose"))
 local TouchControls = require(script:WaitForChild("TouchControls")) -- ปุ่มบนจอสัมผัส (มือถือ)
+local LobbyUi = require(script:WaitForChild("LobbyUi"))
 require(script:WaitForChild("MonsterPose")) -- ท่าเล็งของ monster ยิงไกล (ทำงานเอง)
 
 local player = Players.LocalPlayer
@@ -529,6 +530,7 @@ end)
 
 Hud.OnSlotActivated = equip -- แตะช่องอาวุธเพื่อสลับ
 Hud.Init({ Touch = TouchControls.IsTouchDevice() })
+task.spawn(LobbyUi.Init, { Touch = TouchControls.IsTouchDevice() })
 TouchControls.Init({
 	AttackDown = attackDown,
 	AttackUp = attackUp,

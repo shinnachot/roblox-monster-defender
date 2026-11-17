@@ -6,6 +6,25 @@ local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local Remotes = ReplicatedStorage.Remotes
+local CollectionService = game:GetService("CollectionService")
+
+-- หุ่นฝึกใน Lobby (tag "TrainingDummy"): โดนได้ไม่จำกัด แสดงตัวเลข damage เหมือน monster
+local function dummyFromPart(part)
+	local node = part
+	while node and node ~= workspace do
+		if CollectionService:HasTag(node, "TrainingDummy") then
+			return node
+		end
+		node = node.Parent
+	end
+	return nil
+end
+
+local function hitDummy(player, dummy, amount, isHead, position, weapon)
+	Remotes.DamageDealt:FireClient(player, position, amount, isHead, weapon)
+	-- ส่ายเล็กน้อยให้รู้ว่าโดน
+	dummy:SetAttribute("HitAt", workspace:GetServerTimeNow())
+end
 
 local PlayerService = require(script.Parent.PlayerService)
 local MonsterService = require(script.Parent.MonsterService)
@@ -56,6 +75,18 @@ local function swordHit(player, damage)
 		local reach = cfg.Range - 1 + (m.Radius or 1)
 		if dist <= reach and math.abs(offset.Y) <= 8 and (dist < 2.5 + (m.Radius or 1) or to.Unit:Dot(look) >= minDot) then
 			table.insert(hits, model)
+		end
+	end
+	for _, dummy in CollectionService:GetTagged("TrainingDummy") do
+		local body = dummy.PrimaryPart
+		if body then
+			local offset = body.Position - origin
+			local to = flat(offset)
+			local radius = dummy:GetAttribute("Radius") or 1
+			if to.Magnitude <= cfg.Range - 1 + radius and math.abs(offset.Y) <= 8
+				and (to.Magnitude < 2.5 + radius or to.Unit:Dot(look) >= minDot) then
+				hitDummy(player, dummy, damage, false, body.Position + Vector3.new(0, 3, 0), "Sword")
+			end
 		end
 	end
 	for _, model in hits do
@@ -155,6 +186,14 @@ local function simulateArrow(player, shot)
 			local model = MonsterService.GetFromPart(result.Instance)
 			if model then
 				applyArrowHit(player, shot, model, isHeadPart(result.Instance), result.Position)
+			else
+				local dummy = dummyFromPart(result.Instance)
+				if dummy and not shot.Done then
+					shot.Done = true
+					local isHead = result.Instance.Name == "Head"
+					local amount = math.round(shot.Damage * (isHead and Config.HeadshotMultiplier or 1))
+					hitDummy(player, dummy, amount, isHead, result.Position + Vector3.new(0, 1, 0), "Bow")
+				end
 			end
 			break
 		end
@@ -241,7 +280,9 @@ local function onBowFire(player, direction, shotId)
 	if not head then
 		return
 	end
-	player:SetAttribute("Arrows", arrows - 1)
+	if PlayerService.InMatch(player) then
+		player:SetAttribute("Arrows", arrows - 1) -- ใน Lobby ยิงได้ไม่จำกัด
+	end
 
 	-- ยิ่งง้างนานยิ่งแรงและบินไกล
 	local speed = cfg.MinSpeed + (cfg.MaxSpeed - cfg.MinSpeed) * charge
