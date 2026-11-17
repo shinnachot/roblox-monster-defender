@@ -14,6 +14,7 @@ local Config = require(ReplicatedStorage.Shared.GameConfig)
 local PlayerService = require(script.Parent.PlayerService)
 local MonsterService = require(script.Parent.MonsterService)
 local BaseService = require(script.Parent.BaseService)
+local ProgressionService = require(script.Parent.ProgressionService)
 
 local WaveService = {}
 
@@ -160,6 +161,7 @@ local function runMatch(stage)
 	workspace:SetAttribute("MatchTime", math.floor(os.clock() - startedAt))
 	workspace:SetAttribute("NextStage", nextStage)
 	setPhase(won and "Victory" or "Defeat", Config.Waves.ResultTime)
+	ProgressionService.AwardAll(stage, won)
 	MonsterService.ClearAll()
 	task.wait(Config.Waves.ResultTime)
 	return nextStage

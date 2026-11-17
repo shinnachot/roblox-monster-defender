@@ -123,12 +123,61 @@ Config.Armors = {
 	Leather = { Name = "เกราะหนัง", Durability = 25 },
 	Chain = { Name = "เกราะโซ่", Durability = 50 },
 	Iron = { Name = "เกราะเหล็ก", Durability = 75 },
+	LegendArmor = { Name = "เกราะในตำนาน", Durability = 100 },
 }
 
 Config.DefaultLoadout = {
 	Weapons = { "Sword", "Bow" },
 	ExtraArrows = 6,
 	Armor = "Leather",
+}
+
+---------------------------------------------------------------- Progression (เฟส 3, GDD ข้อ 3-5)
+
+-- Rank ตาม EXP (เรียงจากต่ำไปสูง) — ตกแรงก์ไม่ได้
+Config.Ranks = {
+	{ Id = "Bronze", Name = "Bronze", MinExp = 0 },
+	{ Id = "Silver", Name = "Silver", MinExp = 500 },
+	{ Id = "Gold", Name = "Gold", MinExp = 1500 },
+	{ Id = "Platinum", Name = "Platinum", MinExp = 4000 },
+	{ Id = "Legend", Name = "Legend", MinExp = 10000 },
+}
+
+-- ไอเท็มใน loadout: key = id ที่เก็บใน DataStore (ห้ามเปลี่ยนชื่อ key), Name = ข้อความที่แสดง
+-- Kind: Weapon / Armor / Ammo / Consumable / Offhand; Upgradable = สุ่มได้ชิ้นส่วนและอัพเกรดได้
+-- Repeatable = ใส่ใน loadout ซ้ำได้หลายชิ้น; Order = ลำดับการ์ดในหน้า Loadout
+Config.Items = {
+	Sword = { Name = "ดาบ", Rank = "Bronze", Cost = 3, Kind = "Weapon", Upgradable = true, Order = 1 },
+	Bow = { Name = "ธนู", Rank = "Bronze", Cost = 3, Kind = "Weapon", Upgradable = true, Order = 2 },
+	ExtraArrows = { Name = "ลูกธนูเพิ่ม", Rank = "Bronze", Cost = 2, Kind = "Ammo", Repeatable = true, Arrows = 6, Order = 3 },
+	Shield = { Name = "โล่", Rank = "Bronze", Cost = 2, Kind = "Offhand", Order = 4 },
+	Potion = { Name = "ยาฟื้น HP", Rank = "Bronze", Cost = 2, Kind = "Consumable", Charges = 2, Order = 5 },
+	Leather = { Name = "เกราะหนัง", Rank = "Bronze", Cost = 2, Kind = "Armor", Upgradable = true, Order = 6 },
+	Spear = { Name = "หอก", Rank = "Silver", Cost = 4, Kind = "Weapon", Upgradable = true, Order = 7 },
+	Chain = { Name = "เกราะโซ่", Rank = "Silver", Cost = 4, Kind = "Armor", Upgradable = true, Order = 8 },
+	Crossbow = { Name = "หน้าไม้", Rank = "Gold", Cost = 4, Kind = "Weapon", Upgradable = true, Order = 9 },
+	Hammer = { Name = "ค้อนสองมือ", Rank = "Gold", Cost = 5, Kind = "Weapon", Upgradable = true, Order = 10 },
+	Musket = { Name = "ปืนคาบศิลา", Rank = "Platinum", Cost = 4, Kind = "Weapon", Upgradable = true, Order = 11 },
+	Iron = { Name = "เกราะเหล็ก", Rank = "Platinum", Cost = 6, Kind = "Armor", Upgradable = true, Order = 12 },
+	LegendSword = { Name = "ดาบในตำนาน", Rank = "Legend", Cost = 5, Kind = "Weapon", Upgradable = true, Order = 13 },
+	LegendArmor = { Name = "เกราะในตำนาน", Rank = "Legend", Cost = 7, Kind = "Armor", Upgradable = true, Order = 14 },
+}
+
+Config.Loadout = {
+	Points = 12,
+	MaxWeapons = 5, -- สลับอาวุธปุ่ม 1-5
+	-- ชุดเริ่มต้นเมื่อยังไม่เคยจัด (12 แต้ม)
+	Starter = { "Sword", "Bow", "ExtraArrows", "Leather", "Potion" },
+}
+
+Config.Rewards = {
+	Win = { Parts = { 3, 5 }, ExpPerStage = 100 },
+	Lose = { Parts = { 1, 2 }, ExpPerStage = -40 },
+}
+
+Config.Upgrade = {
+	Costs = { 5, 8, 12, 16, 20 }, -- ชิ้นส่วนที่ใช้อัพเป็นเลเวล 1..5
+	BonusPerLevel = 0.03, -- อาวุธ = ดาเมจ, เกราะ = ค่าเกราะ
 }
 
 Config.Monsters = {

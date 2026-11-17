@@ -42,3 +42,8 @@ Animation (สร้างด้วย `generate_animation`, อยู่ใน�
 
 - `DebugStage` (number 1–5) — แมตช์ถัดไปเริ่มที่ด่านนี้
 - `DebugWave` (number 1–5) — เริ่มที่คลื่นนี้ (5 = Boss)
+
+## ข้อมูลผู้เล่น (เฟส 3)
+
+- DataStore `PlayerData_v1` คีย์ `Player_<UserId>` — Exp, Parts, Levels, Loadout, UnlockedStage (+ session lock)
+- ทดสอบใน Studio ต้องเปิด **Game Settings → Security → Enable Studio Access to API Services** ไม่งั้นจะใช้โปรไฟล์ชั่วคราวและไม่เซฟ (มี warning ใน Output)
