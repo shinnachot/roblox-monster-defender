@@ -124,6 +124,8 @@ local function buildPreview(parent, item)
 	viewport.CurrentCamera = camera
 end
 
+LoadoutUi.BuildPreview = buildPreview -- ใช้ซ้ำในหน้าเปิดหีบ (RewardUi)
+
 ---------------------------------------------------------------- การจัด
 
 local function toggle(id)

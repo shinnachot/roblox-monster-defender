@@ -129,11 +129,11 @@ Config.Armors = {
 
 -- Rank ตาม EXP (เรียงจากต่ำไปสูง) — ตกแรงก์ไม่ได้
 Config.Ranks = {
-	{ Id = "Bronze", Name = "Bronze", MinExp = 0 },
-	{ Id = "Silver", Name = "Silver", MinExp = 500 },
-	{ Id = "Gold", Name = "Gold", MinExp = 1500 },
-	{ Id = "Platinum", Name = "Platinum", MinExp = 4000 },
-	{ Id = "Legend", Name = "Legend", MinExp = 10000 },
+	{ Id = "Bronze", Name = "Bronze", MinExp = 0, Color = Color3.fromRGB(205, 127, 50) },
+	{ Id = "Silver", Name = "Silver", MinExp = 500, Color = Color3.fromRGB(200, 205, 215) },
+	{ Id = "Gold", Name = "Gold", MinExp = 1500, Color = Color3.fromRGB(255, 205, 60) },
+	{ Id = "Platinum", Name = "Platinum", MinExp = 4000, Color = Color3.fromRGB(120, 225, 230) },
+	{ Id = "Legend", Name = "Legend", MinExp = 10000, Color = Color3.fromRGB(200, 110, 255) },
 }
 
 -- ไอเท็มใน loadout: key = id ที่เก็บใน DataStore (ห้ามเปลี่ยนชื่อ key), Name = ข้อความที่แสดง

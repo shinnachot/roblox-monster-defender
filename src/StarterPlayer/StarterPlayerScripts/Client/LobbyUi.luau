@@ -19,13 +19,6 @@ LobbyUi.OnOpenLoadout = nil
 local FONT = Font.fromEnum(Enum.Font.GothamBold)
 local PANEL_COLOR = Color3.fromRGB(20, 22, 28)
 local ACCENT = Color3.fromRGB(255, 196, 64)
-local RANK_COLORS = {
-	Bronze = Color3.fromRGB(205, 127, 50),
-	Silver = Color3.fromRGB(200, 205, 215),
-	Gold = Color3.fromRGB(255, 205, 60),
-	Platinum = Color3.fromRGB(120, 225, 230),
-	Legend = Color3.fromRGB(200, 110, 255),
-}
 local ERROR_TEXT = {
 	Busy = "มีแมตช์กำลังเล่นอยู่ — รอสักครู่",
 	Locked = "ด่านนี้ยังไม่ปลดล็อค",
@@ -120,7 +113,7 @@ function LobbyUi.Refresh()
 	local rank = Progression.Rank(exp)
 	local nextRank = Progression.NextRank(exp)
 	rankLabel.Text = rank.Name
-	rankLabel.TextColor3 = RANK_COLORS[rank.Id] or ACCENT
+	rankLabel.TextColor3 = rank.Color or ACCENT
 	if nextRank then
 		local span = nextRank.MinExp - rank.MinExp
 		expFill.Size = UDim2.fromScale(math.clamp((exp - rank.MinExp) / span, 0, 1), 1)
@@ -192,7 +185,7 @@ function LobbyUi.Init(options)
 	end)
 	-- คอม: เมาส์ถูกล็อกกลางจอ จึงใช้ปุ่ม K เริ่มด่านที่เลือกอยู่
 	UserInputService.InputBegan:Connect(function(input, processed)
-		if not processed and input.KeyCode == Enum.KeyCode.K and gui.Enabled and playButton.Active then
+		if not processed and input.KeyCode == Enum.KeyCode.K and gui.Enabled and playButton.Active and not (LobbyUi.IsBlocked and LobbyUi.IsBlocked()) then
 			task.spawn(play)
 		end
 	end)

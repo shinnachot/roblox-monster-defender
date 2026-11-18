@@ -17,6 +17,7 @@ Studio คือต้นฉบับของโค้ด (GDD ข้อ 0) โ
 | คริสตัลฐาน | 99829008230184 |
 | ป้อม — เหลือใช้แค่หลังคาป้อมมุม 4 หลัง (กำแพงสร้างใหม่จาก Part ใน `Map.Fort`) | 91733327096845 |
 | ชั้นวางอาวุธ (คลังอาวุธใน Lobby) | 117098692227056 |
+| หีบรางวัล (`ReplicatedStorage.Assets.Props.RewardChest` — Base + Lid, หมุนฝารอบ attachment `Base.Hinge`) | 17269605532 |
 | ต้นไม้ (Low Poly Tree Pack) — ต้นแบบเก็บใน `ServerStorage.TreeTemplates` | 15217079919 |
 | Skeleton (R15) — Skeleton Archer | 94271026740769 |
 | Orc (R15) — Orc Brute และ Boss Orc Warlord | 71129266059717 |
@@ -45,6 +46,8 @@ server นี้มีป้อมเดียว จึงเล่นได้
 - `DebugUnlockAll` (bool) — เลือกด่านที่ยังไม่ปลดล็อคได้ (ใช้ได้เฉพาะใน Studio)
 - `DebugWave` (number 1–5) — แมตช์ถัดไปเริ่มที่คลื่นนี้ (5 = Boss)
 - `DebugGrantParts` / `DebugGrantExp` (number) — ตั้งระหว่าง Play เพื่อแจกชิ้นส่วน (ทุกไอเท็มที่ปลดล็อค) / EXP ให้ทุกคน (เฉพาะใน Studio)
+- จบแมตช์เร็ว ๆ: ระหว่างแมตช์ตั้ง attribute `HP` = 0 บน `Workspace.Map.Base` (แพ้ทันที)
+- หน้าเปิดหีบ (`Client/RewardUi`) เด้งเองหลังกลับ Lobby — ลองหน้าตาโดยไม่ต้องเล่นจบ: จาก server ยิง `Remotes.MatchRewards:FireClient(player, summary)` ด้วย summary ปลอม (ExpBefore/Exp ข้าม 500 เพื่อดู rank up)
 
 ## ข้อมูลผู้เล่น (เฟส 3)
 

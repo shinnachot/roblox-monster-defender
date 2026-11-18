@@ -263,23 +263,10 @@ function Hud.Init(options)
 	Hud.Refresh()
 end
 
--- ข้อความรางวัล: EXP, rank up, ปลดล็อคด่าน, ชิ้นส่วนจากหีบ
+-- ข้อความรางวัลบนป้ายผล: EXP + บอกว่าได้หีบ (เปิดดูชิ้นส่วน/rank up ได้ที่ Lobby — RewardUi)
 function Hud.FormatReward(r)
-	local parts = {}
-	for id, count in r.Parts do
-		local item = Config.Items[id]
-		table.insert(parts, string.format("%s ×%d", item and item.Name or id, count))
-	end
-	table.sort(parts)
 	local expText = r.ExpDelta >= 0 and string.format("EXP +%d", r.ExpDelta) or string.format("EXP %d", r.ExpDelta)
-	local line = string.format("%s  (รวม %d)   หีบ: %s", expText, r.Exp, #parts > 0 and table.concat(parts, ", ") or "-")
-	if r.Rank ~= r.RankBefore then
-		line ..= string.format("\n⭐ เลื่อนแรงก์เป็น %s!", r.Rank)
-	end
-	if r.UnlockedStage > (r.UnlockedBefore or r.UnlockedStage) then
-		line ..= string.format("\nปลดล็อคด่าน %d แล้ว", r.UnlockedStage)
-	end
-	return line
+	return string.format("%s   —   ได้%s! เปิดได้ที่ Lobby", expText, r.Won and "หีบรางวัล" or "หีบปลอบใจ")
 end
 
 local function secondsLeft()

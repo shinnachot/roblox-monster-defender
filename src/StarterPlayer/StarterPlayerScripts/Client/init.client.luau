@@ -23,6 +23,7 @@ local SlashPose = require(script:WaitForChild("SlashPose"))
 local TouchControls = require(script:WaitForChild("TouchControls")) -- ปุ่มบนจอสัมผัส (มือถือ)
 local LobbyUi = require(script:WaitForChild("LobbyUi"))
 local LoadoutUi = require(script:WaitForChild("LoadoutUi"))
+local RewardUi = require(script:WaitForChild("RewardUi"))
 require(script:WaitForChild("MonsterPose")) -- ท่าเล็งของ monster ยิงไกล (ทำงานเอง)
 
 local player = Players.LocalPlayer
@@ -563,7 +564,16 @@ player:GetAttributeChangedSignal("HasShield"):Connect(function()
 	end
 	TouchControls.SetEquipped(equipped, hasShieldFor(equipped))
 end)
-LobbyUi.OnOpenLoadout = LoadoutUi.Open
+LobbyUi.OnOpenLoadout = function()
+	if not RewardUi.IsOpen() then
+		LoadoutUi.Open()
+	end
+end
+-- เปิดหีบ/คลังอยู่: ปุ่ม K ไม่เริ่มด่าน
+LobbyUi.IsBlocked = function()
+	return RewardUi.IsOpen() or LoadoutUi.IsOpen()
+end
+RewardUi.Init()
 Hud.Init({ Touch = TouchControls.IsTouchDevice() })
 task.spawn(LobbyUi.Init, { Touch = TouchControls.IsTouchDevice() })
 TouchControls.Init({
