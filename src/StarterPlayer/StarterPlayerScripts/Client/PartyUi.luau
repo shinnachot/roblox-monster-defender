@@ -293,7 +293,8 @@ end
 
 function PartyUi.Init(options)
 	touch = options ~= nil and options.Touch == true
-	gui = make("ScreenGui", { Name = "PartyUi", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 5 }, player:WaitForChild("PlayerGui"))
+	gui = make("ScreenGui", { Name = "PartyUi", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 5, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, player:WaitForChild("PlayerGui"))
+	-- Sibling: ลูกวาดทับพื้นหลังของแม่เสมอ (Global ทำให้พื้นหน้าทีม ZIndex 5 บังเนื้อหาข้างใน)
 
 	-- ซ้ายกลาง: สมาชิกทีม + ปุ่มเปิดหน้าทีม
 	teamPanel = make("Frame", { Size = UDim2.fromOffset(240, 122), Position = touch and UDim2.new(0, 16, 0.3, 0) or UDim2.new(0, 24, 0.5, 0), AnchorPoint = Vector2.new(0, touch and 0 or 0.5), BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0.2, BorderSizePixel = 0, Visible = false }, gui)
@@ -305,12 +306,12 @@ function PartyUi.Init(options)
 	teamButton.Activated:Connect(PartyUi.Toggle)
 
 	-- กลางจอ: หน้าทีม
-	menu = make("Frame", { Size = UDim2.fromOffset(640, 400), Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0.05, BorderSizePixel = 0, Visible = false, ZIndex = 5 }, gui)
+	menu = make("Frame", { Size = UDim2.fromOffset(640, 400), Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0, BorderSizePixel = 0, Visible = false, ZIndex = 5 }, gui)
 	make("UISizeConstraint", { MaxSize = Vector2.new(640, 400) }, menu)
 	menu.Size = UDim2.new(0.94, 0, 0.8, 0)
 	corner(menu, 14)
 	menuTitle = text({ Size = UDim2.new(1, 0, 0, 40), Position = UDim2.fromOffset(0, 8), Text = "ทีม", TextSize = 26 }, menu)
-	local close = button({ Size = UDim2.fromOffset(40, 40), Position = UDim2.new(1, -50, 0, 8), Text = "✕", TextSize = 22, BackgroundColor3 = GREY }, menu)
+	local close = button({ Size = UDim2.fromOffset(40, 40), Position = UDim2.new(1, -50, 0, 8), Text = "X", TextSize = 22, BackgroundColor3 = GREY }, menu)
 	close.Activated:Connect(PartyUi.Close)
 
 	local left = make("Frame", { Size = UDim2.new(0.5, -21, 1, -110), Position = UDim2.fromOffset(14, 56), BackgroundTransparency = 1 }, menu)
