@@ -288,6 +288,9 @@ function Hud.Refresh()
 	if not inMatch then
 		statusLabel.Text = ""
 		lastReward = (phase == "Victory" or phase == "Defeat") and lastReward or nil
+	elseif phase == "Waiting" then
+		local left = secondsLeft()
+		statusLabel.Text = left > 0 and string.format("รอเพื่อนร่วมทีมเข้าด่าน... (%d วิ)", left) or "รอเพื่อนร่วมทีมเข้าด่าน..."
 	elseif phase == "Countdown" then
 		statusLabel.Text = string.format("มอนสเตอร์จะบุกใน %d วิ", secondsLeft())
 	elseif phase == "Wave" then

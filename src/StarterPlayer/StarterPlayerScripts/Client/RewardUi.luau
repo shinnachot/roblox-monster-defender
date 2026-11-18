@@ -519,6 +519,17 @@ function RewardUi.Init()
 			task.delay(OPEN_DELAY, RewardUi.Open)
 		end
 	end)
+	-- กลับจาก server แมตช์: รางวัลติดมากับ teleport (server เก็บไว้ให้)
+	task.spawn(function()
+		local remote = Remotes:WaitForChild("GetPendingReward", 30)
+		local summary = remote and remote:InvokeServer()
+		if summary and not pending then
+			pending = summary
+			if not player:GetAttribute("InMatch") then
+				task.delay(OPEN_DELAY, RewardUi.Open)
+			end
+		end
+	end)
 	player:GetAttributeChangedSignal("InMatch"):Connect(function()
 		if not player:GetAttribute("InMatch") and pending then
 			task.delay(OPEN_DELAY, RewardUi.Open)

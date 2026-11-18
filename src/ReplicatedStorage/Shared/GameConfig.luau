@@ -319,6 +319,17 @@ Config.Map = {
 	WallMinY = 11, -- ตำแหน่งที่สูงกว่านี้ = อยู่บนกำแพง/ป้อมมุม (ทางเดินบนกำแพงสูง 16)
 }
 
+-- ทีม + หาผู้เล่นข้าม server (GDD ข้อ 2 Party & Matchmaking, เฟส 4)
+Config.Party = {
+	MaxSize = 3,
+	InviteTimeout = 20, -- คำชวนหมดอายุ (วินาที)
+	QueueTime = 30, -- หาผู้เล่นจากทุก lobby server นานเท่านี้ แล้วเริ่มด้วยจำนวนที่มี
+	PollInterval = 2, -- รอบตรวจคิวใน MemoryStore
+	ClaimTimeout = 15, -- ทีมที่ถูกจับคู่แล้วรอ host ส่งรหัส server นานสุดเท่านี้ ก่อนกลับไปหาใหม่
+	ArrivalTimeout = 25, -- server แมตช์รอทุกคนมาถึงนานสุด (นับจากคนแรกมาถึง)
+	ReunionTime = 60, -- กลับ Lobby แล้วรวมทีมเดิมให้เองภายในเวลานี้
+}
+
 Config.Waves = {
 	PlayerScale = { 0.5, 0.75, 1.0 }, -- ตัวคูณจำนวน monster สำหรับ 1/2/3 คน
 	StartDelay = 8,

@@ -22,6 +22,7 @@ local MeleeFx = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("M
 local SlashPose = require(script:WaitForChild("SlashPose"))
 local TouchControls = require(script:WaitForChild("TouchControls")) -- ปุ่มบนจอสัมผัส (มือถือ)
 local LobbyUi = require(script:WaitForChild("LobbyUi"))
+local PartyUi = require(script:WaitForChild("PartyUi"))
 local LoadoutUi = require(script:WaitForChild("LoadoutUi"))
 local RewardUi = require(script:WaitForChild("RewardUi"))
 require(script:WaitForChild("MonsterPose")) -- ท่าเล็งของ monster ยิงไกล (ทำงานเอง)
@@ -566,15 +567,20 @@ player:GetAttributeChangedSignal("HasShield"):Connect(function()
 end)
 LobbyUi.OnOpenLoadout = function()
 	if not RewardUi.IsOpen() then
+		PartyUi.Close()
 		LoadoutUi.Open()
 	end
 end
--- เปิดหีบ/คลังอยู่: ปุ่ม K ไม่เริ่มด่าน
+-- เปิดหีบ/คลัง/หน้าทีมอยู่: ปุ่ม K ไม่เริ่มด่าน
 LobbyUi.IsBlocked = function()
+	return RewardUi.IsOpen() or LoadoutUi.IsOpen() or PartyUi.IsOpen()
+end
+PartyUi.IsBlocked = function()
 	return RewardUi.IsOpen() or LoadoutUi.IsOpen()
 end
 RewardUi.Init()
 Hud.Init({ Touch = TouchControls.IsTouchDevice() })
+PartyUi.Init({ Touch = TouchControls.IsTouchDevice() })
 task.spawn(LobbyUi.Init, { Touch = TouchControls.IsTouchDevice() })
 TouchControls.Init({
 	AttackDown = attackDown,

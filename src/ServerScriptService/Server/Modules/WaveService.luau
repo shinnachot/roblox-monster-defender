@@ -3,8 +3,10 @@
 --   MatchPhase (Lobby/Countdown/Wave/Break/Victory/Defeat), Stage, StageCount, Wave, WaveCount,
 --   PhaseEndsAt, MonstersLeft, DefeatReason (Base/Team), MatchTime
 -- แพ้เมื่อ HP ฐาน = 0 หรือผู้เล่นทั้งทีมล้มพร้อมกัน (GDD ข้อ 6)
--- เฟส 3: ผู้เล่นอยู่ที่ Lobby กด Play (Remotes.StartMatch(stage)) -> ย้ายไปป้อมแล้วเริ่มแมตช์
---   จบแมตช์ -> แจกรางวัล -> กลับ Lobby; server นี้มีป้อมเดียว จึงเล่นได้ทีละแมตช์ (เฟส 4 ย้ายไป reserved server)
+-- เฟส 4: แมตช์เล่นใน reserved server (ServerMode = Match) — StartMatchServer:
+--   อ่านข้อมูลแมตช์จาก MemoryStore -> รอทีมมาครบ (ArrivalTimeout) -> เล่น -> แจกรางวัล -> teleport ทุกคนกลับ Lobby
+--   (TeleportData: MatchId, Rewards[userId] = สรุปรางวัลให้หน้าเปิดหีบ, Parties = ทีมเดิมไว้รวมใหม่ใน Lobby)
+-- Lobby ใน Studio (teleport ไม่ได้): PartyService เรียก RequestLocalMatch -> เล่นในป้อมของ server นี้แล้วกลับ Lobby
 --   ผู้เล่นในแมตช์มี attribute InMatch = true
 -- ทดสอบ: ตั้ง attribute workspace.DebugWave = เลข wave เพื่อข้ามไปเริ่มที่ wave นั้น,
 --          workspace.DebugUnlockAll = true เพื่อเลือก stage ที่ยังไม่ปลดล็อคได้ (เฉพาะใน Studio)
@@ -18,7 +20,10 @@ local MonsterService = require(script.Parent.MonsterService)
 local BaseService = require(script.Parent.BaseService)
 local ProgressionService = require(script.Parent.ProgressionService)
 local DataService = require(script.Parent.DataService)
+local ServerMode = require(script.Parent.ServerMode)
+local MatchmakingService = require(script.Parent.MatchmakingService)
 local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
 
 local WaveService = {}
 
@@ -62,32 +67,6 @@ local function waitSeconds(seconds)
 	while os.clock() < deadline and not lost() do
 		task.wait(0.1)
 	end
-end
-
-local pendingRequest = nil -- { Player, Stage }
-local matchRunning = false
-
--- Play จาก Lobby: คืน (ok, reason)
-local function onStartMatch(player, stage)
-	if matchRunning or pendingRequest then
-		return false, "Busy"
-	end
-	if typeof(stage) ~= "number" or not Config.Waves.Stages[stage] then
-		return false, "Invalid"
-	end
-	local data = DataService.Get(player)
-	if not data then
-		return false, "NotLoaded"
-	end
-	local unlockAll = RunService:IsStudio() and workspace:GetAttribute("DebugUnlockAll") == true
-	if stage > data.UnlockedStage and not unlockAll then
-		return false, "Locked"
-	end
-	if not PlayerService.GetCharacterParts(player) then
-		return false, "NoCharacter"
-	end
-	pendingRequest = { Player = player, Stage = stage }
-	return true
 end
 
 local function spawnPosition()
@@ -139,7 +118,7 @@ local function runWave(waveDef, scale, options)
 	workspace:SetAttribute("MonstersLeft", MonsterService.Count())
 end
 
--- คืน true ถ้าชนะ
+-- คืนรางวัลของแต่ละคน { [tostring(userId)] = summary }
 local function runMatch(stage, participants)
 	local waves = Config.Waves.Stages[stage]
 	BaseService.Reset()
@@ -190,15 +169,17 @@ local function runMatch(stage, participants)
 	workspace:SetAttribute("DefeatReason", reason)
 	workspace:SetAttribute("MatchTime", math.floor(os.clock() - startedAt))
 	setPhase(won and "Victory" or "Defeat", Config.Waves.ResultTime)
+	-- รางวัล: ทุกคนที่ยังอยู่ในแมตช์ตอนจบ (รวมคนที่มาถึงทีหลัง)
 	local remaining = {}
-	for _, player in participants do
-		if player.Parent and PlayerService.InMatch(player) then
+	for _, player in Players:GetPlayers() do
+		if PlayerService.InMatch(player) then
 			table.insert(remaining, player)
 		end
 	end
-	ProgressionService.AwardAll(stage, won, remaining)
+	local rewards = ProgressionService.AwardAll(stage, won, remaining)
 	MonsterService.ClearAll()
 	task.wait(Config.Waves.ResultTime)
+	return rewards
 end
 
 local function returnToLobby()
@@ -214,31 +195,187 @@ local function returnToLobby()
 	setPhase("Lobby")
 end
 
-function WaveService.Start()
-	local remote = Instance.new("RemoteFunction")
-	remote.Name = "StartMatch"
-	remote.Parent = ReplicatedStorage.Remotes
-	remote.OnServerInvoke = onStartMatch
+---------------------------------------------------------------- Lobby ใน Studio: แมตช์ในป้อมของ server นี้
+
+local localRequest = nil -- { Stage, Players, OnDone }
+local localRunning = false
+
+function WaveService.LocalMatchBusy()
+	return localRunning or localRequest ~= nil
+end
+
+-- คืน false ถ้าป้อมไม่ว่าง; onDone() เรียกหลังทุกคนกลับ Lobby
+function WaveService.RequestLocalMatch(stage, players, onDone)
+	if WaveService.LocalMatchBusy() then
+		return false
+	end
+	localRequest = { Stage = stage, Players = players, OnDone = onDone }
+	return true
+end
+
+function WaveService.StartLobby()
 	workspace:SetAttribute("StageCount", #Config.Waves.Stages)
 	setPhase("Lobby")
-
 	task.spawn(function()
 		while true do
-			while not pendingRequest do
+			while not localRequest do
 				task.wait(0.2)
 			end
-			local request = pendingRequest
-			matchRunning = true
-			pendingRequest = nil
-			if request.Player.Parent then
-				local ok, err = pcall(runMatch, request.Stage, { request.Player })
+			local request = localRequest
+			localRunning = true
+			localRequest = nil
+			local present = {}
+			for _, player in request.Players do
+				if player.Parent then
+					table.insert(present, player)
+				end
+			end
+			if #present > 0 then
+				local ok, err = pcall(runMatch, request.Stage, present)
 				if not ok then
 					warn("[WaveService] match error:", err)
 				end
 			end
 			pcall(returnToLobby)
-			matchRunning = false
+			localRunning = false
+			if request.OnDone then
+				task.spawn(request.OnDone)
+			end
 		end
+	end)
+end
+
+---------------------------------------------------------------- server แมตช์ (reserved server)
+
+local returnData = nil -- TeleportData ตอนส่งกลับ Lobby (ตั้งเมื่อจบแมตช์)
+local returnAttempts = {}
+
+local function sendToLobby(players)
+	if ServerMode.IsDebugMatch() then
+		-- Studio: ไม่มี Lobby ให้กลับ — ทำแบบแมตช์ในป้อม
+		pcall(returnToLobby)
+		return
+	end
+	if #players == 0 then
+		return
+	end
+	local ok = MatchmakingService.Teleport(players, nil, returnData)
+	if not ok then
+		for _, player in players do
+			player:Kick("กลับ Lobby ไม่สำเร็จ — กรุณาเข้าเกมใหม่ (ความคืบหน้าบันทึกแล้ว)")
+		end
+	end
+end
+
+function WaveService.StartMatchServer()
+	workspace:SetAttribute("StageCount", #Config.Waves.Stages)
+	setPhase("Waiting")
+
+	-- teleport กลับ Lobby ล้ม: ลองใหม่ 3 ครั้งแล้วค่อย kick
+	TeleportService.TeleportInitFailed:Connect(function(player, result, message)
+		warn("[WaveService] return teleport failed:", player.Name, result, message)
+		returnAttempts[player] = (returnAttempts[player] or 0) + 1
+		if returnAttempts[player] > 3 then
+			player:Kick("กลับ Lobby ไม่สำเร็จ — กรุณาเข้าเกมใหม่ (ความคืบหน้าบันทึกแล้ว)")
+		else
+			task.delay(2, sendToLobby, { player })
+		end
+	end)
+
+	task.spawn(function()
+		local info = ServerMode.LoadMatchInfo()
+		local finished = false
+		local started = false
+		local expected = nil
+		if info and info.UserIds then
+			expected = {}
+			for _, userId in info.UserIds do
+				expected[userId] = true
+			end
+		end
+		local ready = {}
+
+		local function admit(player)
+			if not info or finished or (expected and not expected[player.UserId]) then
+				sendToLobby({ player })
+				return
+			end
+			DataService.WaitForProfile(player)
+			if not player.Parent or finished then
+				return
+			end
+			ProgressionService.ApplyKit(player) -- ชุดตาม loadout ก่อนล็อค (InMatch)
+			PlayerService.EnterMatch(player)
+			ready[player] = true
+			if started then
+				print("[WaveService] late arrival:", player.Name)
+			end
+		end
+		Players.PlayerAdded:Connect(admit)
+		Players.PlayerRemoving:Connect(function(player)
+			ready[player] = nil
+			returnAttempts[player] = nil
+		end)
+		for _, player in Players:GetPlayers() do
+			task.spawn(admit, player)
+		end
+		if not info then
+			warn("[WaveService] no match info for this server — sending players back")
+			finished = true
+			return
+		end
+		workspace:SetAttribute("Stage", info.Stage)
+
+		-- รอคนแรก (ไม่มีใครมาใน 60 วิ = ปล่อยให้ server ปิดเอง)
+		local giveUp = os.clock() + 60
+		while not next(ready) and os.clock() < giveUp do
+			task.wait(0.2)
+		end
+		if not next(ready) then
+			finished = true
+			return
+		end
+		-- รอทีมมาครบ
+		setPhase("Waiting", Config.Party.ArrivalTimeout)
+		local deadline = os.clock() + Config.Party.ArrivalTimeout
+		while os.clock() < deadline do
+			local missing = false
+			if expected then
+				for userId in expected do
+					local player = Players:GetPlayerByUserId(userId)
+					if not player or not ready[player] then
+						missing = true
+						break
+					end
+				end
+			else
+				missing = os.clock() < deadline - Config.Party.ArrivalTimeout + 3 -- debug: รอ 3 วิ
+			end
+			if not missing then
+				break
+			end
+			task.wait(0.2)
+		end
+
+		local participants = {}
+		for player in ready do
+			if player.Parent then
+				table.insert(participants, player)
+			end
+		end
+		started = true
+		local rewards = {}
+		if #participants > 0 then
+			local ok, result = pcall(runMatch, info.Stage, participants)
+			if ok then
+				rewards = result or {}
+			else
+				warn("[WaveService] match error:", result)
+			end
+		end
+		finished = true
+		returnData = { MatchId = game.JobId, Rewards = rewards, Parties = info.Parties }
+		sendToLobby(Players:GetPlayers())
 	end)
 end
 

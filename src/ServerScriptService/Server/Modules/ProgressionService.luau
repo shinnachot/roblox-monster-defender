@@ -4,6 +4,8 @@
 --   SetLoadout(RemoteFunction, {itemId...}) -> ok, reason   (จัดได้เฉพาะตอนไม่อยู่ในแมตช์)
 --   UpgradeItem(RemoteFunction, itemId) -> ok, reason
 --   MatchRewards(RemoteEvent → client): { Won, Stage, ExpBefore, Exp, ExpDelta, RankBefore, Rank, Parts, UnlockedStage }
+--   GetPendingReward(RemoteFunction) -> summary หรือ nil — รางวัลแมตช์ที่ติดมากับ teleport กลับ Lobby (เฟส 4)
+--     (แค่ใช้แสดงหน้าเปิดหีบ — รางวัลจริงเซฟไปแล้วที่ server แมตช์)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -64,9 +66,33 @@ function ProgressionService.AwardMatch(player, stage, won)
 	return summary
 end
 
+-- คืน { [tostring(userId)] = summary } ไว้ส่งไปกับ TeleportData ตอนกลับ Lobby
 function ProgressionService.AwardAll(stage, won, participants)
+	local rewards = {}
 	for _, player in participants do
-		task.spawn(ProgressionService.AwardMatch, player, stage, won)
+		local ok, summary = pcall(ProgressionService.AwardMatch, player, stage, won)
+		if ok and summary then
+			rewards[tostring(player.UserId)] = summary
+		elseif not ok then
+			warn("[ProgressionService] award failed for", player.Name, summary)
+		end
+	end
+	return rewards
+end
+
+local pendingRewards = {} -- [player] = summary (จาก TeleportData ตอนกลับ Lobby)
+
+local function readPendingReward(player)
+	local ok, joinData = pcall(function()
+		return player:GetJoinData()
+	end)
+	if not ok or typeof(joinData) ~= "table" or joinData.SourcePlaceId ~= game.PlaceId then
+		return
+	end
+	local data = joinData.TeleportData
+	local summary = typeof(data) == "table" and typeof(data.Rewards) == "table" and data.Rewards[tostring(player.UserId)]
+	if typeof(summary) == "table" and typeof(summary.Exp) == "number" then
+		pendingRewards[player] = summary
 	end
 end
 
@@ -137,7 +163,7 @@ end
 
 function ProgressionService.Init()
 	local remotes = ReplicatedStorage.Remotes
-	for name, class in { SetLoadout = "RemoteFunction", UpgradeItem = "RemoteFunction", MatchRewards = "RemoteEvent" } do
+	for name, class in { SetLoadout = "RemoteFunction", UpgradeItem = "RemoteFunction", MatchRewards = "RemoteEvent", GetPendingReward = "RemoteFunction" } do
 		if not remotes:FindFirstChild(name) then
 			local remote = Instance.new(class)
 			remote.Name = name
@@ -146,8 +172,18 @@ function ProgressionService.Init()
 	end
 	remotes.SetLoadout.OnServerInvoke = setLoadout
 	remotes.UpgradeItem.OnServerInvoke = upgradeItem
+	remotes.GetPendingReward.OnServerInvoke = function(player)
+		local summary = pendingRewards[player]
+		pendingRewards[player] = nil
+		return summary
+	end
+	Players.PlayerAdded:Connect(readPendingReward)
+	for _, player in Players:GetPlayers() do
+		task.spawn(readPendingReward, player)
+	end
 	Players.PlayerRemoving:Connect(function(player)
 		lastRequest[player] = nil
+		pendingRewards[player] = nil
 	end)
 	DataService.ProfileLoaded:Connect(ProgressionService.ApplyKit)
 

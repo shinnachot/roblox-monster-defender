@@ -52,6 +52,7 @@
 - กด **Play** ตอนทีมไม่ครบ → หาผู้เล่นจาก **ทุก lobby server** (MemoryStoreService queue) ที่เลือก **stage เดียวกัน** นาน **30 วินาที** → ไม่ครบก็เริ่มด้วยจำนวนที่มี
 - หัวหน้าทีมกด **"เริ่มเลย"** เพื่อข้ามการหาคนได้
 - เข้าด่านด้วย TeleportService ไป **reserved server** (place เดียวกัน แยกโหมดด้วย TeleportData หรือ place แยกใน universe เดียวกัน — ผู้พัฒนาเลือก)
+  - **เลือกแล้ว (เฟส 4):** place เดียวกัน แยกโหมดด้วยการเป็น reserved server; ข้อมูลแมตช์ส่งผ่าน MemoryStore (ไม่ใช่ TeleportData)
 - จบแมตช์ → หน้าสรุปผล + เปิดหีบ → teleport กลับ lobby
 
 ---
