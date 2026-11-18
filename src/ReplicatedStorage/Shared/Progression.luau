@@ -135,14 +135,15 @@ function Progression.BuildKit(loadout, levels)
 			table.insert(kit.Weapons, id)
 			kit.DamageBonus[id] = Progression.Bonus(levels[id])
 			hasBow = hasBow or id == "Bow"
+			-- อาวุธที่มาคู่กับโล่ (ดาบโล่) ได้โล่ด้วยเสมอ
+			local weapon = Config.Weapons[id]
+			kit.Shield = kit.Shield or (weapon ~= nil and weapon.Shield ~= nil)
 		elseif item.Kind == "Armor" then
 			kit.Armor = id
 			local armor = Config.Armors[id]
 			kit.ArmorDurability = armor and math.round(armor.Durability * Progression.Bonus(levels[id])) or 0
 		elseif item.Kind == "Ammo" then
 			kit.Arrows += item.Arrows
-		elseif item.Kind == "Offhand" then
-			kit.Shield = true
 		elseif item.Kind == "Consumable" then
 			kit.Potions += item.Charges
 		end

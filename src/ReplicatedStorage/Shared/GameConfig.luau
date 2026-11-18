@@ -137,15 +137,15 @@ Config.Ranks = {
 }
 
 -- ไอเท็มใน loadout: key = id ที่เก็บใน DataStore (ห้ามเปลี่ยนชื่อ key), Name = ข้อความที่แสดง
--- Kind: Weapon / Armor / Ammo / Consumable / Offhand; Upgradable = สุ่มได้ชิ้นส่วนและอัพเกรดได้
+-- Kind: Weapon / Armor / Ammo / Consumable; Upgradable = สุ่มได้ชิ้นส่วนและอัพเกรดได้
 -- Repeatable = ใส่ใน loadout ซ้ำได้หลายชิ้น; Order = ลำดับการ์ดในหน้า Loadout
 -- Model = โมเดลใน Assets.Weapons ที่แสดงบนการ์ด (ไม่มี = ใช้ Icon แทน), Desc = คำอธิบายสั้นบนการ์ด
 -- Available = false: ยังไม่มีระบบต่อสู้จริง — แสดงเป็น "เร็ว ๆ นี้" ใส่ loadout ไม่ได้
 Config.Items = {
-	Sword = { Name = "ดาบ", Rank = "Bronze", Cost = 3, Kind = "Weapon", Upgradable = true, Order = 1, Model = "Sword", Desc = "คอมโบ 3 จังหวะ" },
+	-- ดาบมาคู่กับโล่เสมอ (ไม่มีโล่แยกใน loadout) — ดู Config.Weapons.Sword.Shield
+	Sword = { Name = "ดาบโล่", Rank = "Bronze", Cost = 3, Kind = "Weapon", Upgradable = true, Order = 1, Model = "Sword", Desc = "คอมโบ 3 จังหวะ, คลิกขวาค้างยกโล่" },
 	Bow = { Name = "ธนู", Rank = "Bronze", Cost = 3, Kind = "Weapon", Upgradable = true, Order = 2, Model = "Bow", Desc = "ลูกธนู 6 ดอก กดค้างง้าง" },
 	ExtraArrows = { Name = "ลูกธนูเพิ่ม", Rank = "Bronze", Cost = 2, Kind = "Ammo", Repeatable = true, Arrows = 6, Order = 3, Model = "Arrow", Desc = "+6 ดอก (ใส่ซ้ำได้)" },
-	Shield = { Name = "โล่", Rank = "Bronze", Cost = 2, Kind = "Offhand", Order = 4, Model = "Shield", Desc = "ถือดาบ: กดค้างคลิกขวากัน" },
 	Potion = { Name = "ยาฟื้น HP", Rank = "Bronze", Cost = 2, Kind = "Consumable", Charges = 2, Heal = 50, Order = 5, Icon = "🧪", Desc = "2 ขวด ขวดละ +50 HP (ปุ่ม F)" },
 	Leather = { Name = "เกราะหนัง", Rank = "Bronze", Cost = 2, Kind = "Armor", Upgradable = true, Order = 6, Icon = "🦺", Desc = "เกราะ 25" },
 	Spear = { Name = "หอก", Rank = "Silver", Cost = 4, Kind = "Weapon", Upgradable = true, Order = 7, Icon = "🔱", Desc = "ระยะตีไกล", Available = false },

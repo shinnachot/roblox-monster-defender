@@ -56,8 +56,17 @@ local function reconcile(data)
 			end
 		end
 	end
-	if typeof(data.Loadout) == "table" and Progression.ValidateLoadout(data.Loadout, clean.Exp) then
-		clean.Loadout = table.clone(data.Loadout)
+	if typeof(data.Loadout) == "table" then
+		-- ตัดไอเท็มที่ถูกเอาออกจากเกมแล้ว (เช่น โล่ที่รวมเข้ากับดาบ) ก่อนตรวจ loadout
+		local kept = {}
+		for _, id in data.Loadout do
+			if Config.Items[id] then
+				table.insert(kept, id)
+			end
+		end
+		if Progression.ValidateLoadout(kept, clean.Exp) then
+			clean.Loadout = kept
+		end
 	end
 	return clean
 end
