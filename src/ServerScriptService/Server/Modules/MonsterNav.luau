@@ -17,6 +17,9 @@ local RETRY_AFTER_FAIL = 2
 local WAYPOINT_REACH = 2.5
 local STUCK_TIME = 1.5
 local STUCK_DISTANCE = 1
+local NO_PROGRESS_TIME = 5 -- เดินอยู่แต่ไม่เข้าใกล้เป้าเลย (ส่ายไปมาหน้าสิ่งกีดขวาง) นานเท่านี้ = ติด
+local ESCAPE_TIME = 1 -- เดินเลี่ยงซ้าย/ขวานานสุดเท่านี้ แล้วกลับไปตามเส้นทาง (คำนวณใหม่จากจุดใหม่)
+local ARRIVED_DISTANCE = 3.5 -- ใกล้เป้าแล้ว (เช่น ยืนหลบหลังที่กำบัง) ไม่นับว่าติด
 local COVER_MARGIN = 2.5 -- ระยะยืนห่างจากขอบที่กำบัง
 
 local function flat(v)
@@ -173,25 +176,72 @@ local function clearLine(m, from, goal)
 	return result == nil or not result.Instance.CanCollide
 end
 
+-- ติดแล้ว: ก้าวเลี่ยงไปทางซ้ายหรือขวาของทิศที่พยายามเดิน (สลับข้างทุกครั้ง และก้าวไกลขึ้นถ้ายังติดซ้ำ)
+-- ไม่พึ่ง PathfindingService — กันกรณีเส้นทางที่คำนวณได้พาดันสิ่งกีดขวางเดิมวนไม่จบ
+local function startEscape(m, state, pos, now)
+	local heading = flat(m.Hum.WalkToPoint - pos)
+	if heading.Magnitude < 0.1 then
+		heading = flat(m.Root.CFrame.LookVector)
+	end
+	heading = heading.Magnitude > 0.1 and heading.Unit or Vector3.zAxis
+	state.StuckCount = (state.StuckCount or 0) + 1
+	state.EscapeSide = -(state.EscapeSide or 1)
+	local side = state.EscapeSide
+	local step = 3 + math.min(state.StuckCount - 1, 3) * 1.5
+	for _, distance in { step, step * 0.6 } do
+		for _, angle in { 90 * side, -90 * side, 135 * side, -135 * side, 180 } do
+			local dir = CFrame.Angles(0, math.rad(angle), 0):VectorToWorldSpace(heading)
+			local point = pos + dir * distance
+			if canWalkStraight(m, pos, point) then
+				state.Escape = { Point = point, Until = now + ESCAPE_TIME }
+				return
+			end
+		end
+	end
+end
+
 -- สั่งให้เดินไปยัง goal (เรียกซ้ำทุก tick ระหว่างที่ยังต้องการเดิน)
 -- คืน false เมื่อหาเส้นทางไป goal นี้ไม่ได้
 function MonsterNav.MoveTo(m, goal, now)
 	local state = getState(m, now)
 	local pos = m.Root.Position
+	local distance = flat(goal - pos).Magnitude
 
-	-- ตรวจว่าเดินติด: สั่งเดินต่อเนื่องแต่แทบไม่ขยับ -> บังคับคำนวณเส้นทางใหม่
+	-- ตรวจว่าเดินติด: (ก) สั่งเดินต่อเนื่องแต่แทบไม่ขยับ หรือ (ข) ขยับอยู่แต่ไม่เข้าใกล้เป้าเลย
 	if now - state.LastCall > 0.4 then
 		state.StuckPos, state.StuckAt = pos, now
+		state.ProgressGoal = nil
 	end
 	state.LastCall = now
+	local stuck = false
 	if now - state.StuckAt >= STUCK_TIME then
-		if (pos - state.StuckPos).Magnitude < STUCK_DISTANCE then
-			state.ForcePathUntil = now + 4
-			state.Waypoints = nil
-			state.Goal = nil
-			state.Failed = false
-		end
+		stuck = (pos - state.StuckPos).Magnitude < STUCK_DISTANCE
 		state.StuckPos, state.StuckAt = pos, now
+	end
+	if not state.ProgressGoal or (state.ProgressGoal - goal).Magnitude > REPATH_DISTANCE then
+		state.ProgressGoal, state.BestDistance, state.BestAt = goal, distance, now
+	elseif distance < state.BestDistance - 1 then
+		state.BestDistance, state.BestAt, state.StuckCount = distance, now, 0
+	elseif now - state.BestAt >= NO_PROGRESS_TIME then
+		stuck = true
+		state.BestDistance, state.BestAt = distance, now
+	end
+	if stuck and distance > ARRIVED_DISTANCE and not state.Escape then
+		state.ForcePathUntil = now + 4
+		state.Waypoints = nil
+		state.Goal = nil
+		state.Failed = false
+		startEscape(m, state, pos, now)
+	end
+
+	-- กำลังก้าวเลี่ยง: เดินไปจุดเลี่ยงให้ถึง (หรือหมดเวลา) ก่อน แล้วค่อยกลับไปตามเส้นทาง
+	local escape = state.Escape
+	if escape then
+		if now < escape.Until and flat(escape.Point - pos).Magnitude > 0.8 then
+			m.Hum:MoveTo(escape.Point)
+			return true
+		end
+		state.Escape = nil
 	end
 
 	local offset = goal - pos
