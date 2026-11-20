@@ -17,6 +17,7 @@ local MonsterService = require(Modules.MonsterService)
 local CombatService = require(Modules.CombatService)
 local WaveService = require(Modules.WaveService)
 local PartyService = require(Modules.PartyService)
+local LeaderboardService = require(Modules.LeaderboardService)
 
 DataService.Init()
 ProgressionService.Init()
@@ -27,5 +28,6 @@ if ServerMode.IsMatchServer() then
 	WaveService.StartMatchServer()
 else
 	PartyService.Init()
+	LeaderboardService.StartBoard()
 	WaveService.StartLobby()
 end

@@ -23,6 +23,11 @@ function Progression.Rank(exp)
 	return Config.Ranks[Progression.RankIndex(exp)]
 end
 
+-- rank จาก id (เช่น attribute Rank บน Player) — id ไม่รู้จัก = rank แรก
+function Progression.RankById(rankId)
+	return Config.Ranks[rankIndexById[rankId] or 1]
+end
+
 -- rank ถัดไป (nil ถ้าสูงสุดแล้ว)
 function Progression.NextRank(exp)
 	return Config.Ranks[Progression.RankIndex(exp) + 1]

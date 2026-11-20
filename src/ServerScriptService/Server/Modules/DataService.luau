@@ -10,6 +10,7 @@ local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local Progression = require(ReplicatedStorage.Shared.Progression)
+local LeaderboardService = require(script.Parent.LeaderboardService)
 
 local DataService = {}
 
@@ -176,6 +177,7 @@ local function saveProfile(player, release)
 	end)
 	if ok then
 		profile.Dirty = false
+		LeaderboardService.Submit(player.UserId, data.Exp) -- กระดานอันดับ (เฟส 5)
 	else
 		warn("[DataService] save failed for", player.Name, err)
 	end
