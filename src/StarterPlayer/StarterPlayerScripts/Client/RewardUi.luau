@@ -1,6 +1,6 @@
 -- RewardUi: หน้าเปิดหีบหลังจบแมตช์ (GDD ข้อ 5) + เอฟเฟกต์เลื่อนแรงก์ (GDD ข้อ 4)
 -- server ส่งผลรางวัลมาทาง Remotes.MatchRewards ตอนจบแมตช์ (สุ่มและเซฟไว้แล้ว) — หน้านี้แค่เล่นแอนิเมชัน
--- เปิดเองเมื่อกลับถึง Lobby: หีบสั่น → ฝาเด้งเปิด → การ์ดชิ้นส่วนทีละใบ → แถบ EXP วิ่ง → (rank up) → ตกลง
+-- เปิดในด่านทันทีที่จบแมตช์ (ถ้ายังไม่ได้เปิดก่อนกลับ Lobby จะเปิดให้อีกครั้งที่ Lobby): หีบสั่น → ฝาเด้งเปิด → การ์ดชิ้นส่วนทีละใบ → แถบ EXP วิ่ง → (rank up) → ตกลง
 -- คอม: คลิกหรือกด E / Enter เพื่อเปิดหีบและปิดหน้า; มือถือ: แตะ
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -25,7 +25,8 @@ local CARD_COLOR = Color3.fromRGB(44, 48, 58)
 local ACCENT = Color3.fromRGB(255, 196, 64)
 local GREEN = Color3.fromRGB(110, 220, 130)
 local RED = Color3.fromRGB(235, 90, 80)
-local OPEN_DELAY = 1.2 -- รอหลังกลับ Lobby ก่อนเด้งหน้าหีบ
+local OPEN_DELAY = 1.2 -- รอหลังกลับ Lobby ก่อนเด้งหน้าหีบ (รางวัลที่ยังไม่ได้เปิดในด่าน)
+local IN_MATCH_DELAY = 2.5 -- จบแมตช์: โชว์ป้ายชนะ/แพ้ก่อนเด้งหน้าหีบ
 local AUTO_OPEN = 6 -- ไม่กดเปิดเอง หีบเปิดเองหลังกี่วินาที
 local LID_ANGLE = 105
 
@@ -354,6 +355,11 @@ local function openChest()
 	end
 	state = "Done"
 	okButton.Visible = true
+	-- เปิดดูครบแล้ว: บอก server ไม่ต้องให้เปิดซ้ำที่ Lobby หลัง teleport กลับ
+	local seen = Remotes:FindFirstChild("RewardSeen")
+	if seen then
+		seen:FireServer()
+	end
 end
 
 ---------------------------------------------------------------- เปิด/ปิดหน้า
@@ -450,7 +456,7 @@ local function build()
 end
 
 function RewardUi.Open()
-	if not pending or player:GetAttribute("InMatch") or RewardUi.IsOpen() then
+	if not pending or RewardUi.IsOpen() then
 		return
 	end
 	if not gui then
@@ -513,11 +519,10 @@ function RewardUi.HasPending()
 end
 
 function RewardUi.Init()
+	-- จบแมตช์: เปิดหีบในด่านเลย (รอให้เห็นป้ายชนะ/แพ้สักครู่ก่อน)
 	Remotes:WaitForChild("MatchRewards").OnClientEvent:Connect(function(summary)
 		pending = summary
-		if not player:GetAttribute("InMatch") then
-			task.delay(OPEN_DELAY, RewardUi.Open)
-		end
+		task.delay(player:GetAttribute("InMatch") and IN_MATCH_DELAY or OPEN_DELAY, RewardUi.Open)
 	end)
 	-- กลับจาก server แมตช์: รางวัลติดมากับ teleport (server เก็บไว้ให้)
 	task.spawn(function()

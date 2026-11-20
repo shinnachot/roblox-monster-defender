@@ -1,10 +1,14 @@
 -- PlayerService: สถานะผู้เล่นฝั่ง server (HP, เกราะ, อาวุธที่ถือ, โล่, ลูกธนู, i-frame, ล้ม/ชุบ, สถิติแมตช์)
 -- เกราะเผยแพร่เป็น attribute บน Player: Armor (ความทนทานที่เหลือ), MaxArmor, ArmorName
+--   เกราะที่มีโมเดล (Config.Armors[x].Model) สวมบนตัวเป็น WornArmor และหลุดร่วงเมื่อ Armor = 0
+-- จุดเกิดในป้อม: ผู้เล่นแต่ละคนได้ SpawnSlot ของตัวเอง (ไม่เกิดทับกัน)
 -- ชุดอุปกรณ์จาก loadout (Kit, ดู Progression.BuildKit): attribute Weapons ("Sword,Bow" ตามลำดับปุ่ม 1-5),
 --   HasShield, Potions (ขวดที่เหลือ), Arrows — ใช้ชุดเริ่มต้นจนกว่าโปรไฟล์จะโหลด
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
 
 local Config = require(ReplicatedStorage.Shared.GameConfig)
 local MeleeFx = require(ReplicatedStorage.Shared.MeleeFx)
@@ -39,6 +43,18 @@ end
 
 function PlayerService.GetState(player)
 	return states[player]
+end
+
+-- เริ่ม/เลิกง้างธนู (start = os.clock() หรือ nil) — attribute BowDraw ให้ทุก client จัดท่าง้างของคนนี้ตาม
+function PlayerService.SetDrawStart(player, start)
+	local st = states[player]
+	if st then
+		st.DrawStart = start
+	end
+	player:SetAttribute("BowDraw", start and workspace:GetServerTimeNow() or nil)
+	if not start then
+		player:SetAttribute("BowPitch", nil)
+	end
 end
 
 -- character, humanoid, root ของผู้เล่นที่ยังมี character (รวมคนที่ล้มอยู่)
@@ -139,7 +155,7 @@ function PlayerService.Equip(player, weaponName)
 			old:Destroy()
 		end
 	end
-	st.DrawStart = nil
+	PlayerService.SetDrawStart(player, nil)
 	PlayerService.SetBlocking(player, false)
 
 	local model = Assets.Weapons[weaponName]:Clone()
@@ -197,7 +213,7 @@ local function setDowned(player, downed)
 		return
 	end
 	st.Downed = downed
-	st.DrawStart = nil
+	PlayerService.SetDrawStart(player, nil)
 	player:SetAttribute("Downed", downed)
 	player:SetAttribute("ReviveEndsAt", nil)
 	if char then
@@ -253,6 +269,108 @@ function PlayerService.Revive(player, healthFraction)
 	setDowned(player, false)
 end
 
+---------------------------------------------------------------- เกราะบนตัวละคร
+
+-- ชิ้นส่วนใน Assets.Armors.<Model> มี attribute Bone (ชื่อ body part), Offset (CFrame จาก body part),
+-- BoneSize (ขนาด body part ของหุ่นอ้างอิง) — ย่อ/ขยายตามขนาดตัวจริงของผู้เล่นแต่ละคน
+local function wearArmor(char, armorId, modelName)
+	local template = Assets:FindFirstChild("Armors") and Assets.Armors:FindFirstChild(modelName)
+	if not template then
+		return
+	end
+	local worn = Instance.new("Model")
+	worn.Name = "WornArmor"
+	worn:SetAttribute("ArmorId", armorId)
+	for _, source in template:GetChildren() do
+		local bone = source:IsA("BasePart") and char:FindFirstChild(source:GetAttribute("Bone") or "")
+		local offset = source:GetAttribute("Offset")
+		local refSize = source:GetAttribute("BoneSize")
+		if not bone or not bone:IsA("BasePart") or typeof(offset) ~= "CFrame" or typeof(refSize) ~= "Vector3" then
+			continue
+		end
+		local scale = bone.Size / refSize
+		local part = source:Clone()
+		local partScale = scale
+		if part:IsA("Part") and part.Shape == Enum.PartType.Ball then
+			local s = (scale.X + scale.Y + scale.Z) / 3
+			partScale = Vector3.new(s, s, s)
+		end
+		part.Size *= partScale
+		part.Anchored = false
+		part.Massless = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		local c0 = CFrame.new(offset.Position * scale) * offset.Rotation
+		part.CFrame = bone.CFrame * c0
+		local weld = Instance.new("Weld")
+		weld.Name = "ArmorWeld"
+		weld.Part0 = bone
+		weld.Part1 = part
+		weld.C0 = c0
+		weld.Parent = part
+		part.Parent = worn
+	end
+	worn.Parent = char
+end
+
+-- เกราะหมด: ชิ้นส่วนหลุดกระเด็นลงพื้น (tween ไม่ใช้ฟิสิกส์ — ไม่ตกทะลุพื้น ไม่ชนผู้เล่น) แล้วจางหาย
+local function breakArmor(worn, floorY)
+	worn.Name = "BrokenArmor"
+	local center = worn:GetPivot().Position
+	for _, part in worn:GetChildren() do
+		if not part:IsA("BasePart") then
+			continue
+		end
+		local weld = part:FindFirstChild("ArmorWeld")
+		if weld then
+			weld:Destroy()
+		end
+		part.Anchored = true
+		local away = part.Position - center
+		away = Vector3.new(away.X, 0, away.Z)
+		away = away.Magnitude > 0.01 and away.Unit or Vector3.new(math.random() - 0.5, 0, math.random() - 0.5).Unit
+		local landing = part.Position + away * (1 + math.random() * 2)
+		local target = CFrame.new(landing.X, floorY + math.min(part.Size.X, part.Size.Y, part.Size.Z) / 2, landing.Z)
+			* CFrame.Angles(math.rad(math.random(-90, 90)), math.rad(math.random(0, 360)), math.rad(math.random(-90, 90)))
+		local fall = TweenService:Create(part, TweenInfo.new(0.35 + math.random() * 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { CFrame = target })
+		fall:Play()
+		fall.Completed:Connect(function()
+			TweenService:Create(part, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Transparency = 1 }):Play()
+		end)
+	end
+	worn.Parent = workspace
+	Debris:AddItem(worn, 1.6)
+	Remotes.WorldSound:FireAllClients("ShieldBlock", center)
+end
+
+-- ใส่/ถอดเกราะบนตัวให้ตรงกับสถานะ: ใส่เมื่อ kit มีเกราะที่มีโมเดลและค่าเกราะยังเหลือ
+local function updateArmorVisual(player)
+	local st = states[player]
+	local char = player.Character
+	if not st or not char or not char:FindFirstChild("UpperTorso") then
+		return
+	end
+	local armorId = st.Kit.Armor
+	local cfg = armorId and Config.Armors[armorId]
+	local want = cfg and cfg.Model and (player:GetAttribute("Armor") or 0) > 0
+	local worn = char:FindFirstChild("WornArmor")
+	if worn and (not want or worn:GetAttribute("ArmorId") ~= armorId) then
+		if not want and cfg and worn:GetAttribute("ArmorId") == armorId then
+			local root = char:FindFirstChild("HumanoidRootPart")
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			local floorY = root and (root.Position.Y - root.Size.Y / 2 - (hum and hum.HipHeight or 2)) or worn:GetPivot().Position.Y - 3
+			breakArmor(worn, floorY) -- ค่าเกราะหมด
+		else
+			worn:Destroy() -- เปลี่ยน/ถอดชุดใน Lobby
+		end
+		worn = nil
+	end
+	if want and not worn then
+		wearArmor(char, armorId, cfg.Model)
+	end
+end
+
 -- ใส่เกราะตาม loadout ใหม่ (ความทนทานเต็ม)
 local function refillArmor(player)
 	local st = states[player]
@@ -286,6 +404,7 @@ function PlayerService.SetKit(player, kit)
 	if not PlayerService.InMatch(player) then
 		refillSupplies(player)
 	end
+	updateArmorVisual(player)
 	-- ถืออาวุธเดิมต่อถ้ายังอยู่ใน loadout (ถอด/ใส่โล่ใหม่ตาม kit) ไม่งั้นถือชิ้นแรก
 	local weapon = table.find(kit.Weapons, st.Equipped) and st.Equipped or kit.Weapons[1]
 	st.Equipped = nil
@@ -302,10 +421,74 @@ function PlayerService.DamageBonus(player, weaponId)
 	return st and st.Kit.DamageBonus[weaponId] or 1
 end
 
+-- เอฟเฟกต์ฮีลสีเขียว (สร้างฝั่ง server ให้ทุกคนเห็น): ตัวเรืองเขียว + ประกายลอยขึ้น + วงแหวนที่เท้า + แสง
+-- client ของคนดื่มดู attribute HealedAt แล้วกระพริบขอบจอสีเขียว (Hud.FlashHeal)
+local HEAL_COLOR = Color3.fromRGB(90, 255, 120)
+
+local function playHealEffect(player, char, root)
+	player:SetAttribute("HealedAt", workspace:GetServerTimeNow())
+
+	local glow = Instance.new("Highlight")
+	glow.Name = "HealGlow"
+	glow.FillColor = HEAL_COLOR
+	glow.OutlineColor = Color3.fromRGB(200, 255, 210)
+	glow.FillTransparency = 0.45
+	glow.OutlineTransparency = 0.1
+	glow.DepthMode = Enum.HighlightDepthMode.Occluded
+	glow.Parent = char
+	TweenService:Create(glow, TweenInfo.new(1.1, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { FillTransparency = 1, OutlineTransparency = 1 }):Play()
+	Debris:AddItem(glow, 1.2)
+
+	local light = Instance.new("PointLight")
+	light.Color = HEAL_COLOR
+	light.Brightness = 3
+	light.Range = 12
+	light.Parent = root
+	TweenService:Create(light, TweenInfo.new(1.1), { Brightness = 0 }):Play()
+	Debris:AddItem(light, 1.2)
+
+	local sparkles = Instance.new("ParticleEmitter")
+	sparkles.Name = "HealSparkles"
+	sparkles.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	sparkles.Color = ColorSequence.new(Color3.fromRGB(180, 255, 190), HEAL_COLOR)
+	sparkles.LightEmission = 1
+	sparkles.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 0) })
+	sparkles.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
+	sparkles.Lifetime = NumberRange.new(0.7, 1.2)
+	sparkles.Speed = NumberRange.new(3, 6)
+	sparkles.Acceleration = Vector3.new(0, 4, 0)
+	sparkles.SpreadAngle = Vector2.new(25, 25)
+	sparkles.EmissionDirection = Enum.NormalId.Top
+	sparkles.Rate = 0
+	sparkles.Parent = root
+	sparkles:Emit(35)
+	Debris:AddItem(sparkles, 1.5)
+
+	-- วงแหวนขยายออกที่เท้า
+	local ring = Instance.new("Part")
+	ring.Name = "HealRing"
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Material = Enum.Material.Neon
+	ring.Color = HEAL_COLOR
+	ring.Transparency = 0.35
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CanQuery = false
+	ring.CanTouch = false
+	ring.CastShadow = false
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	local feetY = root.Position.Y - root.Size.Y / 2 - (hum and hum.HipHeight or 2) + 0.1
+	ring.Size = Vector3.new(0.1, 2, 2)
+	ring.CFrame = CFrame.new(root.Position.X, feetY, root.Position.Z) * CFrame.Angles(0, 0, math.pi / 2)
+	ring.Parent = workspace
+	TweenService:Create(ring, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = Vector3.new(0.1, 9, 9), Transparency = 1 }):Play()
+	Debris:AddItem(ring, 0.8)
+end
+
 -- ดื่มยา: +Heal HP (ไม่เกิน MaxHP) — ในแมตช์ใช้ขวดจริง, ใน Lobby ไม่จำกัด
 local function onUsePotion(player)
 	local st = states[player]
-	local char, hum = PlayerService.GetCharacterParts(player)
+	local char, hum, root = PlayerService.GetCharacterParts(player)
 	if not st or not char or os.clock() < st.NextPotion then
 		return
 	end
@@ -319,6 +502,7 @@ local function onUsePotion(player)
 		player:SetAttribute("Potions", potions - 1)
 	end
 	Remotes.WorldSound:FireAllClients("Pickup", char:GetPivot().Position)
+	playHealEffect(player, char, root)
 end
 
 -- จบ wave: คนที่ไม่มีใครชุบ respawn ที่ฐาน (ได้เกราะใหม่)
@@ -338,16 +522,44 @@ local function moveTo(player, spawnPart)
 	end
 end
 
-function PlayerService.RespawnDowned()
+-- จุดเกิดในป้อม: ผู้เล่นแต่ละคนได้ช่อง (SpawnSlot 1..3) เรียงข้างกันตามแกนขวาของ FortSpawn ไม่ให้ตัวทับกัน
+local SPAWN_SPACING = 5
+
+local function claimSpawnSlot(player)
+	local st = states[player]
+	local used = {}
+	for other, otherState in states do
+		if other ~= player and otherState.SpawnSlot and PlayerService.InMatch(other) then
+			used[otherState.SpawnSlot] = true
+		end
+	end
+	local slot = 1
+	while used[slot] do
+		slot += 1
+	end
+	st.SpawnSlot = slot
+end
+
+local function moveToFort(player)
+	local st = states[player]
 	local spawn = fortSpawn()
+	local char = player.Character
+	if not st or not spawn or not char then
+		return
+	end
+	local slot = st.SpawnSlot or 1
+	-- ช่อง 1 = กลาง, 2 = ซ้าย, 3 = ขวา, 4 = ซ้ายถัดไป ...
+	local side = (slot % 2 == 0) and -1 or 1
+	local x = side * (slot // 2) * SPAWN_SPACING
+	char:PivotTo(spawn.CFrame * CFrame.new(x, 3, 0))
+end
+
+function PlayerService.RespawnDowned()
 	for player, st in states do
 		if st.Downed and PlayerService.InMatch(player) then
 			PlayerService.Revive(player, 1)
 			refillArmor(player)
-			local char = player.Character
-			if char and spawn then
-				char:PivotTo(spawn.CFrame + Vector3.new(0, 3, 0))
-			end
+			moveToFort(player)
 		end
 	end
 end
@@ -477,9 +689,10 @@ function PlayerService.EnterMatch(player)
 	if not states[player] then
 		return
 	end
+	claimSpawnSlot(player)
 	player:SetAttribute("InMatch", true)
 	PlayerService.ResetPlayer(player)
-	moveTo(player, fortSpawn())
+	moveToFort(player)
 end
 
 -- กลับ Lobby: ลุกขึ้น HP/เกราะ/ลูกธนูเต็ม (สถิติแมตช์เก็บไว้ดูจนเริ่มแมตช์ใหม่)
@@ -489,6 +702,7 @@ function PlayerService.LeaveMatch(player)
 		return
 	end
 	player:SetAttribute("InMatch", false)
+	st.SpawnSlot = nil
 	stopReviving(player)
 	if st.Downed then
 		PlayerService.Revive(player, 1)
@@ -510,7 +724,7 @@ local function onCharacterAdded(player, char)
 	hum.MaxHealth = Config.Player.MaxHP
 	hum.Health = Config.Player.MaxHP
 	refillArmor(player)
-	st.DrawStart = nil
+	PlayerService.SetDrawStart(player, nil)
 	st.ComboIndex = 0
 	st.Blocking = false
 	player:SetAttribute("Blocking", nil)
@@ -521,12 +735,14 @@ local function onCharacterAdded(player, char)
 		-- เกิดใหม่ระหว่างแมตช์ (เช่น reset ตัวละคร): กลับมาที่ป้อม ไม่ใช่ Lobby
 		local root = char:WaitForChild("HumanoidRootPart", 10)
 		if root then
-			task.defer(moveTo, player, fortSpawn())
+			task.defer(moveToFort, player)
 		end
 	end
 	char:WaitForChild("RightHand", 10)
 	char:WaitForChild("LeftHand", 10)
 	PlayerService.Equip(player, st.Equipped or st.Kit.Weapons[1])
+	char:WaitForChild("UpperTorso", 10)
+	updateArmorVisual(player)
 end
 
 local function onPlayerAdded(player)
@@ -539,6 +755,9 @@ local function onPlayerAdded(player)
 	for _, name in STAT_NAMES do
 		player:SetAttribute("Stat" .. name, 0)
 	end
+	player:GetAttributeChangedSignal("Armor"):Connect(function()
+		updateArmorVisual(player)
+	end)
 	player.CharacterAdded:Connect(function(char)
 		onCharacterAdded(player, char)
 	end)

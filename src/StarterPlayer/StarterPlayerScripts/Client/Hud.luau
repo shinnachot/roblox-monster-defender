@@ -263,10 +263,10 @@ function Hud.Init(options)
 	Hud.Refresh()
 end
 
--- ข้อความรางวัลบนป้ายผล: EXP + บอกว่าได้หีบ (เปิดดูชิ้นส่วน/rank up ได้ที่ Lobby — RewardUi)
+-- ข้อความรางวัลบนป้ายผล: EXP + บอกว่าได้หีบ (หน้าเปิดหีบเด้งขึ้นมาในด่านเลย — RewardUi)
 function Hud.FormatReward(r)
 	local expText = r.ExpDelta >= 0 and string.format("EXP +%d", r.ExpDelta) or string.format("EXP %d", r.ExpDelta)
-	return string.format("%s   —   ได้%s! เปิดได้ที่ Lobby", expText, r.Won and "หีบรางวัล" or "หีบปลอบใจ")
+	return string.format("%s   —   ได้%s!", expText, r.Won and "หีบรางวัล" or "หีบปลอบใจ")
 end
 
 local function secondsLeft()
@@ -473,10 +473,23 @@ function Hud.SetRollCooldown(duration)
 	rollReadyAt = os.clock() + duration
 end
 
+local HURT_EDGE = Color3.fromRGB(200, 0, 0)
+local HEAL_EDGE = Color3.fromRGB(60, 230, 100)
+
 function Hud.FlashHurt()
 	for _, frame in hurtEdges do
+		frame.BackgroundColor3 = HURT_EDGE
 		frame.BackgroundTransparency = 0
 		TweenService:Create(frame, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
+	end
+end
+
+-- ดื่มยา: ขอบจอเรืองเขียว (ช้ากว่าตอนโดนตี)
+function Hud.FlashHeal()
+	for _, frame in hurtEdges do
+		frame.BackgroundColor3 = HEAL_EDGE
+		frame.BackgroundTransparency = 0.2
+		TweenService:Create(frame, TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
 	end
 end
 

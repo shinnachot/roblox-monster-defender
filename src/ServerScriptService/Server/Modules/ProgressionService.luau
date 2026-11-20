@@ -6,6 +6,7 @@
 --   MatchRewards(RemoteEvent → client): { Won, Stage, ExpBefore, Exp, ExpDelta, RankBefore, Rank, Parts, UnlockedStage }
 --   GetPendingReward(RemoteFunction) -> summary หรือ nil — รางวัลแมตช์ที่ติดมากับ teleport กลับ Lobby (เฟส 4)
 --     (แค่ใช้แสดงหน้าเปิดหีบ — รางวัลจริงเซฟไปแล้วที่ server แมตช์)
+--   RewardSeen(RemoteEvent ← client): เปิดหีบในด่านดูครบแล้ว -> summary.Seen = true (Lobby ไม่เปิดให้ซ้ำ)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -19,6 +20,7 @@ local ProgressionService = {}
 local rng = Random.new()
 local REQUEST_COOLDOWN = 0.25
 local lastRequest = {}
+local lastSummary = {} -- [player] = summary ล่าสุด (ตารางเดียวกับที่ส่งไปกับ TeleportData)
 
 local function throttled(player)
 	local now = os.clock()
@@ -62,6 +64,7 @@ function ProgressionService.AwardMatch(player, stage, won)
 		UnlockedStage = reward.UnlockedStage,
 		UnlockedBefore = unlockedBefore,
 	}
+	lastSummary[player] = summary
 	ReplicatedStorage.Remotes.MatchRewards:FireClient(player, summary)
 	return summary
 end
@@ -91,7 +94,7 @@ local function readPendingReward(player)
 	end
 	local data = joinData.TeleportData
 	local summary = typeof(data) == "table" and typeof(data.Rewards) == "table" and data.Rewards[tostring(player.UserId)]
-	if typeof(summary) == "table" and typeof(summary.Exp) == "number" then
+	if typeof(summary) == "table" and typeof(summary.Exp) == "number" and summary.Seen ~= true then
 		pendingRewards[player] = summary
 	end
 end
@@ -163,7 +166,7 @@ end
 
 function ProgressionService.Init()
 	local remotes = ReplicatedStorage.Remotes
-	for name, class in { SetLoadout = "RemoteFunction", UpgradeItem = "RemoteFunction", MatchRewards = "RemoteEvent", GetPendingReward = "RemoteFunction" } do
+	for name, class in { SetLoadout = "RemoteFunction", UpgradeItem = "RemoteFunction", MatchRewards = "RemoteEvent", GetPendingReward = "RemoteFunction", RewardSeen = "RemoteEvent" } do
 		if not remotes:FindFirstChild(name) then
 			local remote = Instance.new(class)
 			remote.Name = name
@@ -172,6 +175,12 @@ function ProgressionService.Init()
 	end
 	remotes.SetLoadout.OnServerInvoke = setLoadout
 	remotes.UpgradeItem.OnServerInvoke = upgradeItem
+	remotes.RewardSeen.OnServerEvent:Connect(function(player)
+		local summary = lastSummary[player]
+		if summary then
+			summary.Seen = true
+		end
+	end)
 	remotes.GetPendingReward.OnServerInvoke = function(player)
 		local summary = pendingRewards[player]
 		pendingRewards[player] = nil
@@ -184,6 +193,7 @@ function ProgressionService.Init()
 	Players.PlayerRemoving:Connect(function(player)
 		lastRequest[player] = nil
 		pendingRewards[player] = nil
+		lastSummary[player] = nil
 	end)
 	DataService.ProfileLoaded:Connect(ProgressionService.ApplyKit)
 

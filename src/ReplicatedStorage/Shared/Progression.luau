@@ -80,12 +80,13 @@ function Progression.LoadoutCost(loadout)
 end
 
 -- ตรวจ loadout: ไอเท็มมีจริง + ปลดล็อคแล้ว, ไม่ซ้ำ (ยกเว้น Repeatable), เกราะไม่เกิน 1 ชุด,
--- อาวุธ 1..MaxWeapons ชิ้น, แต้มไม่เกิน Points — คืน (true) หรือ (false, เหตุผล)
+-- อาวุธ 1..MaxWeapons ชิ้น, ลูกธนูต้องคู่กับธนู (มีธนู = อย่างน้อย 1 ชุด), แต้มไม่เกิน Points
+-- คืน (true) หรือ (false, เหตุผล)
 function Progression.ValidateLoadout(loadout, exp)
 	if typeof(loadout) ~= "table" or #loadout > 20 then
 		return false, "Invalid"
 	end
-	local seen, weapons, armors = {}, 0, 0
+	local seen, weapons, armors, ammo = {}, 0, 0, 0
 	for _, id in loadout do
 		local item = typeof(id) == "string" and Config.Items[id]
 		if not item then
@@ -105,7 +106,15 @@ function Progression.ValidateLoadout(loadout, exp)
 			weapons += 1
 		elseif item.Kind == "Armor" then
 			armors += 1
+		elseif item.Kind == "Ammo" then
+			ammo += 1
 		end
+	end
+	if ammo > 0 and not seen.Bow then
+		return false, "NeedsBow"
+	end
+	if seen.Bow and ammo == 0 then
+		return false, "NoArrows"
 	end
 	if weapons < 1 or weapons > Config.Loadout.MaxWeapons then
 		return false, "Weapons"
@@ -119,13 +128,32 @@ function Progression.ValidateLoadout(loadout, exp)
 	return true
 end
 
+-- ปรับ loadout เก่าให้เข้ากติกาลูกธนู: ไม่มีธนู -> ตัดลูกธนูทิ้ง, มีธนูแต่ไม่มีลูกธนู -> เติม 1 ชุด
+function Progression.NormalizeLoadout(loadout)
+	local hasBow = table.find(loadout, "Bow") ~= nil
+	local out, ammo = {}, 0
+	for _, id in loadout do
+		local item = Config.Items[id]
+		if item and item.Kind == "Ammo" then
+			if not hasBow then
+				continue
+			end
+			ammo += 1
+		end
+		table.insert(out, id)
+	end
+	if hasBow and ammo == 0 then
+		table.insert(out, "ExtraArrows")
+	end
+	return out
+end
+
 -- แปลง loadout (รายการ id) เป็นชุดอุปกรณ์ที่ใช้ในเกม
 -- คืน { Weapons = {id...} ตามลำดับปุ่ม 1-5, Arrows, Armor = id|nil, Shield = bool, Potions,
 --       DamageBonus = {[weaponId]=ตัวคูณ}, ArmorDurability }
 function Progression.BuildKit(loadout, levels)
 	levels = levels or {}
 	local kit = { Weapons = {}, Arrows = 0, Armor = nil, Shield = false, Potions = 0, DamageBonus = {}, ArmorDurability = 0 }
-	local hasBow = false
 	for _, id in loadout do
 		local item = Config.Items[id]
 		if not item then
@@ -134,7 +162,6 @@ function Progression.BuildKit(loadout, levels)
 		if item.Kind == "Weapon" then
 			table.insert(kit.Weapons, id)
 			kit.DamageBonus[id] = Progression.Bonus(levels[id])
-			hasBow = hasBow or id == "Bow"
 			-- อาวุธที่มาคู่กับโล่ (ดาบโล่) ได้โล่ด้วยเสมอ
 			local weapon = Config.Weapons[id]
 			kit.Shield = kit.Shield or (weapon ~= nil and weapon.Shield ~= nil)
@@ -147,9 +174,6 @@ function Progression.BuildKit(loadout, levels)
 		elseif item.Kind == "Consumable" then
 			kit.Potions += item.Charges
 		end
-	end
-	if hasBow then
-		kit.Arrows += Config.Weapons.Bow.Ammo
 	end
 	return kit
 end

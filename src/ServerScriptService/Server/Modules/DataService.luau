@@ -64,6 +64,7 @@ local function reconcile(data)
 				table.insert(kept, id)
 			end
 		end
+		kept = Progression.NormalizeLoadout(kept) -- กติกาลูกธนูใหม่ (ชุดละ 12 ดอก คู่กับธนู)
 		if Progression.ValidateLoadout(kept, clean.Exp) then
 			clean.Loadout = kept
 		end

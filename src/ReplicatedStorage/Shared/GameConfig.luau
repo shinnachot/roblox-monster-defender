@@ -59,7 +59,7 @@ Config.Weapons = {
 		Slot = 2,
 		Kind = "Bow",
 		Hand = "Left",
-		Ammo = 6,
+		-- ลูกธนูไม่ได้มากับธนู: ซื้อเป็นชุดใน loadout (Items.ExtraArrows)
 		ChargeTime = 1.0, -- วินาทีจนง้างสุด
 		MinCharge = 0.15, -- ง้างน้อยกว่านี้ = ยกเลิก ไม่เสียลูกธนู
 		MinDamage = 12,
@@ -118,8 +118,9 @@ Config.MeleeTrail = {
 
 -- เกราะ: ค่าเกราะ (Durability) รับดาเมจก่อนทั้งหมด เกราะหมดแล้วจึงเริ่มลด HP
 -- ไม่ฟื้นระหว่างด่าน; ได้เกราะใหม่ตอนเริ่มแมตช์ และตอน respawn ที่ฐาน (จบ wave โดยไม่มีใครชุบ)
+-- Model = โมเดลใน Assets.Armors ที่สวมบนตัวละครตอนเกราะยังเหลือ (หลุดร่วงเมื่อเกราะหมด)
 Config.Armors = {
-	Leather = { Name = "เกราะหนัง", Durability = 25 },
+	Leather = { Name = "เกราะหนัง", Durability = 25, Model = "LeatherArmor" },
 	Chain = { Name = "เกราะโซ่", Durability = 50 },
 	Iron = { Name = "เกราะเหล็ก", Durability = 75 },
 	LegendArmor = { Name = "เกราะในตำนาน", Durability = 100 },
@@ -139,15 +140,16 @@ Config.Ranks = {
 -- ไอเท็มใน loadout: key = id ที่เก็บใน DataStore (ห้ามเปลี่ยนชื่อ key), Name = ข้อความที่แสดง
 -- Kind: Weapon / Armor / Ammo / Consumable; Upgradable = สุ่มได้ชิ้นส่วนและอัพเกรดได้
 -- Repeatable = ใส่ใน loadout ซ้ำได้หลายชิ้น; Order = ลำดับการ์ดในหน้า Loadout
--- Model = โมเดลใน Assets.Weapons ที่แสดงบนการ์ด (ไม่มี = ใช้ Icon แทน), Desc = คำอธิบายสั้นบนการ์ด
+-- Model = โมเดลใน Assets.Weapons (เกราะ: Assets.Armors) ที่แสดงบนการ์ด (ไม่มี = ใช้ Icon แทน), Desc = คำอธิบายสั้นบนการ์ด
 -- Available = false: ยังไม่มีระบบต่อสู้จริง — แสดงเป็น "เร็ว ๆ นี้" ใส่ loadout ไม่ได้
 Config.Items = {
 	-- ดาบมาคู่กับโล่เสมอ (ไม่มีโล่แยกใน loadout) — ดู Config.Weapons.Sword.Shield
 	Sword = { Name = "ดาบโล่", Rank = "Bronze", Cost = 3, Kind = "Weapon", Upgradable = true, Order = 1, Model = "Sword", Desc = "คอมโบ 3 จังหวะ, คลิกขวาค้างยกโล่" },
-	Bow = { Name = "ธนู", Rank = "Bronze", Cost = 3, Kind = "Weapon", Upgradable = true, Order = 2, Model = "Bow", Desc = "ลูกธนู 6 ดอก กดค้างง้าง" },
-	ExtraArrows = { Name = "ลูกธนูเพิ่ม", Rank = "Bronze", Cost = 2, Kind = "Ammo", Repeatable = true, Arrows = 6, Order = 3, Model = "Arrow", Desc = "+6 ดอก (ใส่ซ้ำได้)" },
+	Bow = { Name = "ธนู", Rank = "Bronze", Cost = 3, Kind = "Weapon", Upgradable = true, Order = 2, Model = "Bow", Desc = "กดค้างง้าง ยิงไกล — ใส่แล้วได้ลูกธนู 1 ชุดให้เอง" },
+	-- ลูกธนู: ใส่ได้เฉพาะเมื่อมีธนู และมีธนูต้องมีอย่างน้อย 1 ชุด (Progression.ValidateLoadout)
+	ExtraArrows = { Name = "ลูกธนู", Rank = "Bronze", Cost = 1, Kind = "Ammo", Repeatable = true, Arrows = 12, Order = 3, Model = "Arrow", Desc = "12 ดอกต่อชุด" },
 	Potion = { Name = "ยาฟื้น HP", Rank = "Bronze", Cost = 2, Kind = "Consumable", Charges = 2, Heal = 50, Order = 5, Icon = "🧪", Desc = "2 ขวด ขวดละ +50 HP (ปุ่ม F)" },
-	Leather = { Name = "เกราะหนัง", Rank = "Bronze", Cost = 2, Kind = "Armor", Upgradable = true, Order = 6, Icon = "🦺", Desc = "เกราะ 25" },
+	Leather = { Name = "เกราะหนัง", Rank = "Bronze", Cost = 2, Kind = "Armor", Upgradable = true, Order = 6, Model = "LeatherArmor", Icon = "🦺", Desc = "เกราะ 25" },
 	Spear = { Name = "หอก", Rank = "Silver", Cost = 4, Kind = "Weapon", Upgradable = true, Order = 7, Icon = "🔱", Desc = "ระยะตีไกล", Available = false },
 	Chain = { Name = "เกราะโซ่", Rank = "Silver", Cost = 4, Kind = "Armor", Upgradable = true, Order = 8, Icon = "⛓️", Desc = "เกราะ 50" },
 	Crossbow = { Name = "หน้าไม้", Rank = "Gold", Cost = 4, Kind = "Weapon", Upgradable = true, Order = 9, Icon = "🏹", Desc = "แรงแต่ยิงช้า", Available = false },
@@ -162,7 +164,7 @@ Config.Loadout = {
 	Points = 12,
 	MaxWeapons = 5, -- สลับอาวุธปุ่ม 1-5
 	-- ชุดเริ่มต้นเมื่อยังไม่เคยจัด (12 แต้ม)
-	Starter = { "Sword", "Bow", "ExtraArrows", "Leather", "Potion" },
+	Starter = { "Sword", "Bow", "ExtraArrows", "ExtraArrows", "Leather", "Potion" },
 }
 
 Config.Rewards = {
@@ -335,7 +337,7 @@ Config.Waves = {
 	StartDelay = 8,
 	BreakTime = 15,
 	SpawnInterval = 1.2,
-	ResultTime = 12,
+	ResultTime = 20, -- รวมเวลาเปิดหีบในด่าน (RewardUi) ก่อนกลับ Lobby
 	-- จำนวนต่อ wave สำหรับทีม 3 คน (คูณ PlayerScale ตามจำนวนผู้เล่น; Boss มี 1 ตัวเสมอ)
 	-- wave 5 ของทุก stage มี Boss
 	Stages = {

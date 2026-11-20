@@ -291,19 +291,34 @@ end
 
 ---------------------------------------------------------------- สร้าง UI
 
+-- จอสัมผัส: ย่อแผงตามความสูงจอ (มือถือแนวนอนสูง ~400 px → ~0.6 เท่า, แท็บเล็ตเต็มขนาด)
+local function touchScale(target)
+	local scale = Instance.new("UIScale")
+	local camera = workspace.CurrentCamera
+	local function rescale()
+		scale.Scale = math.clamp(camera.ViewportSize.Y / 660, 0.55, 1)
+	end
+	camera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
+	rescale()
+	scale.Parent = target
+end
+
 function PartyUi.Init(options)
 	touch = options ~= nil and options.Touch == true
 	gui = make("ScreenGui", { Name = "PartyUi", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 5, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, player:WaitForChild("PlayerGui"))
 	-- Sibling: ลูกวาดทับพื้นหลังของแม่เสมอ (Global ทำให้พื้นหน้าทีม ZIndex 5 บังเนื้อหาข้างใน)
 
 	-- ซ้ายกลาง: สมาชิกทีม + ปุ่มเปิดหน้าทีม
-	teamPanel = make("Frame", { Size = UDim2.fromOffset(240, 122), Position = touch and UDim2.new(0, 16, 0.3, 0) or UDim2.new(0, 24, 0.5, 0), AnchorPoint = Vector2.new(0, touch and 0 or 0.5), BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0.2, BorderSizePixel = 0, Visible = false }, gui)
+	teamPanel = make("Frame", { Size = UDim2.fromOffset(240, 122), Position = touch and UDim2.new(0, 12, 0.27, 0) or UDim2.new(0, 24, 0.5, 0), AnchorPoint = Vector2.new(0, touch and 0 or 0.5), BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0.2, BorderSizePixel = 0, Visible = false }, gui)
 	corner(teamPanel, 12)
 	teamTitle = text({ Size = UDim2.new(1, 0, 0, 28), Position = UDim2.fromOffset(0, 6), Text = "ทีม", TextSize = 18, TextColor3 = Color3.fromRGB(210, 210, 210) }, teamPanel)
 	teamRows = make("Frame", { Size = UDim2.new(1, -20, 1, -82), Position = UDim2.fromOffset(10, 36), BackgroundTransparency = 1 }, teamPanel)
 	make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, teamRows)
 	teamButton = button({ Size = UDim2.new(1, -20, 0, 32), Text = touch and "ชวนเพื่อน / ทีม" or "ชวนเพื่อน / ทีม (P)", TextSize = 16, BackgroundColor3 = Color3.fromRGB(60, 110, 170) }, teamPanel)
 	teamButton.Activated:Connect(PartyUi.Toggle)
+	if touch then
+		touchScale(teamPanel)
+	end
 
 	-- กลางจอ: หน้าทีม
 	menu = make("Frame", { Size = UDim2.fromOffset(640, 400), Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0, BorderSizePixel = 0, Visible = false, ZIndex = 5 }, gui)

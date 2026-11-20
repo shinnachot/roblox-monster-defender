@@ -1,6 +1,7 @@
 -- MonsterNav: การเดินของ monster ด้วย PathfindingService (อ้อมต้นไม้/ที่กำบัง, ผ่านประตู, ขึ้นบันไดกำแพง)
 -- และการหาที่กำบังให้ monster ยิงไกล (ที่กำบัง = part ที่ติด tag "Cover" ใน Map.Field)
 local PathfindingService = game:GetService("PathfindingService")
+local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -48,21 +49,48 @@ local function getState(m, now)
 	return state
 end
 
+-- ทิศถอยออกจากสิ่งกีดขวางเมื่อหาเส้นทางจากจุดที่ยืนไม่ได้ (เทียบกับทิศไปเป้า: ข้าง ๆ ก่อน แล้วค่อยถอยหลัง)
+local NUDGE_ANGLES = { 90, -90, 135, -135, 180, 45, -45 }
+
+local function tryCompute(path, start, goal)
+	local ok = pcall(function()
+		path:ComputeAsync(start, goal)
+	end)
+	return ok and path.Status == Enum.PathStatus.Success
+end
+
 local function compute(m, state, goal, now)
 	state.Pending = true
 	state.RequestedAt = now
 	task.spawn(function()
 		local path = state.Path
-		local ok = pcall(function()
-			path:ComputeAsync(m.Root.Position, goal)
-		end)
+		local start = m.Root.Position
+		local waypoints
+		if tryCompute(path, start, goal) then
+			waypoints = path:GetWaypoints()
+		else
+			-- ยืนชิดสิ่งกีดขวางจน PathfindingService ถือว่าจุดเริ่มอยู่ในสิ่งกีดขวาง (NoPath)
+			-- -> ลองหาเส้นทางจากจุดที่ถอยออกมาเล็กน้อย แล้วเดินไปจุดนั้นก่อน
+			local toGoal = flat(goal - start)
+			local forward = toGoal.Magnitude > 0.1 and toGoal.Unit or Vector3.zAxis
+			local step = math.max(1.5, m.Radius + 0.5) + 2.5
+			for _, angle in NUDGE_ANGLES do
+				local nudged = start + CFrame.Angles(0, math.rad(angle), 0):VectorToWorldSpace(forward) * step
+				if tryCompute(path, nudged, goal) then
+					waypoints = path:GetWaypoints()
+					table.insert(waypoints, 1, PathWaypoint.new(nudged, Enum.PathWaypointAction.Walk))
+					table.insert(waypoints, 1, PathWaypoint.new(start, Enum.PathWaypointAction.Walk))
+					break
+				end
+			end
+		end
 		state.Pending = false
 		if m.Dead then
 			return
 		end
 		state.Goal = goal
-		if ok and path.Status == Enum.PathStatus.Success then
-			state.Waypoints = path:GetWaypoints()
+		if waypoints then
+			state.Waypoints = waypoints
 			state.Index = 2
 			state.Failed = false
 		else
@@ -70,6 +98,23 @@ local function compute(m, state, goal, now)
 			state.Failed = true
 		end
 	end)
+end
+
+-- ทางตรงไป goal โล่ง (ระดับเอว) — ถ้ามีสิ่งกีดขวางเตี้ย ๆ ขวาง (เช่น กำแพงหิน Low) ต้องใช้เส้นทางอ้อม
+-- ไม่นับ monster และผู้เล่น (เดินชนกันเองได้ ไม่ใช่สิ่งกีดขวางถาวร)
+local lineParams = RaycastParams.new()
+lineParams.FilterType = Enum.RaycastFilterType.Exclude
+local function clearLine(m, from, goal)
+	local ignore = { m.Model, workspace:FindFirstChild("Monsters") }
+	for _, player in Players:GetPlayers() do
+		table.insert(ignore, player.Character)
+	end
+	lineParams.FilterDescendantsInstances = ignore
+	local low = Vector3.new(0, 1.5, 0)
+	local start = Vector3.new(from.X, from.Y, from.Z) - low
+	local finish = Vector3.new(goal.X, from.Y, goal.Z) - low
+	local result = workspace:Raycast(start, finish - start, lineParams)
+	return result == nil or not result.Instance.CanCollide
 end
 
 -- สั่งให้เดินไปยัง goal (เรียกซ้ำทุก tick ระหว่างที่ยังต้องการเดิน)
@@ -94,7 +139,9 @@ function MonsterNav.MoveTo(m, goal, now)
 	end
 
 	local offset = goal - pos
-	if now >= state.ForcePathUntil and flat(offset).Magnitude <= DIRECT_RANGE and math.abs(offset.Y) <= DIRECT_HEIGHT then
+	if now >= state.ForcePathUntil and flat(offset).Magnitude <= DIRECT_RANGE and math.abs(offset.Y) <= DIRECT_HEIGHT
+		and clearLine(m, pos, goal)
+	then
 		m.Hum:MoveTo(goal)
 		return true
 	end

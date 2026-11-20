@@ -136,14 +136,23 @@ local function onBowDrawStart(player)
 	if (player:GetAttribute("Arrows") or 0) <= 0 then
 		return
 	end
-	st.DrawStart = os.clock()
+	PlayerService.SetDrawStart(player, os.clock())
 end
 
 local function onBowCancel(player)
 	local st = PlayerService.GetState(player)
 	if st then
-		st.DrawStart = nil
+		PlayerService.SetDrawStart(player, nil)
 	end
+end
+
+-- มุมเงยตอนง้าง (เรเดียน) ส่งต่อให้ client อื่นจัดท่าแขนตาม
+local function onBowAimPitch(player, pitch)
+	local st = PlayerService.GetState(player)
+	if not st or not st.DrawStart or type(pitch) ~= "number" or pitch ~= pitch then
+		return
+	end
+	player:SetAttribute("BowPitch", math.clamp(pitch, -1.4, 1.4))
 end
 
 -- ทำดาเมจจากลูกธนู 1 ดอก (ครั้งเดียวต่อดอก)
@@ -264,7 +273,7 @@ local function onBowFire(player, direction, shotId)
 		return
 	end
 	local drawStart = st.DrawStart
-	st.DrawStart = nil
+	PlayerService.SetDrawStart(player, nil)
 	if not isUnitVector(direction) then
 		return
 	end
@@ -312,7 +321,7 @@ local function onRoll(player)
 	end
 	st.LastRoll = now
 	st.IFrameUntil = now + Config.Roll.IFrame
-	st.DrawStart = nil
+	PlayerService.SetDrawStart(player, nil)
 	PlayerService.SetBlocking(player, false)
 end
 
@@ -322,6 +331,10 @@ function CombatService.Init()
 	Remotes.BowDrawStart.OnServerEvent:Connect(onBowDrawStart)
 	Remotes.BowCancel.OnServerEvent:Connect(onBowCancel)
 	Remotes.BowFire.OnServerEvent:Connect(onBowFire)
+	local aimPitch = Remotes:FindFirstChild("BowAimPitch") or Instance.new("UnreliableRemoteEvent")
+	aimPitch.Name = "BowAimPitch"
+	aimPitch.Parent = Remotes
+	aimPitch.OnServerEvent:Connect(onBowAimPitch)
 	Remotes.ArrowHit.OnServerEvent:Connect(onArrowHit)
 	Players.PlayerRemoving:Connect(function(player)
 		shots[player] = nil

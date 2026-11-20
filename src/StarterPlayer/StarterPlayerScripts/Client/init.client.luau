@@ -490,6 +490,13 @@ Remotes.PlayerHurt.OnClientEvent:Connect(function()
 	Sfx.Play("PlayerHurt")
 end)
 
+-- ดื่มยาสำเร็จ (server ตั้ง HealedAt): ขอบจอเรืองเขียว
+player:GetAttributeChangedSignal("HealedAt"):Connect(function()
+	if player:GetAttribute("HealedAt") then
+		Hud.FlashHeal()
+	end
+end)
+
 ---------------------------------------------------------------- ตัวละคร
 
 local function onCharacterAdded(newChar)

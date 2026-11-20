@@ -13,11 +13,11 @@ local PRESSED_TRANSPARENCY = 0.2
 
 -- ตำแหน่ง = ระยะจุดกึ่งกลางปุ่มจากมุมล่างขวาของจอ (ก่อนคูณ UIScale)
 local LAYOUT = {
-	Jump = { Size = 112, X = -86, Y = -82, Text = "กระโดด", TextSize = 22 },
-	Attack = { Size = 124, X = -92, Y = -214, Text = "ฟัน", TextSize = 28 },
-	Roll = { Size = 88, X = -208, Y = -70, Text = "กลิ้ง", TextSize = 21 },
-	Block = { Size = 88, X = -218, Y = -184, Text = "โล่", TextSize = 21 },
-	Revive = { Size = 80, X = -312, Y = -62, Text = "ชุบ", TextSize = 20 },
+	Jump = { Size = 72, X = -62, Y = -62, Text = "กระโดด", TextSize = 15 },
+	Attack = { Size = 84, X = -70, Y = -160, Text = "ฟัน", TextSize = 22 },
+	Roll = { Size = 58, X = -150, Y = -52, Text = "กลิ้ง", TextSize = 15 },
+	Block = { Size = 58, X = -158, Y = -130, Text = "โล่", TextSize = 15 },
+	Revive = { Size = 54, X = -226, Y = -46, Text = "ชุบ", TextSize = 14 },
 }
 local ATTACK_TEXT = { Sword = "ฟัน", Bow = "ยิง" }
 
@@ -46,7 +46,7 @@ local function buildButton(parent, name)
 	local frame = make("Frame", {
 		Name = name,
 		Size = UDim2.fromOffset(spec.Size, spec.Size),
-		Position = UDim2.new(1, spec.X, 1, spec.Y),
+		Position = UDim2.fromOffset(spec.X, spec.Y),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundColor3 = Color3.fromRGB(12, 14, 18),
 		BackgroundTransparency = IDLE_TRANSPARENCY,
@@ -55,7 +55,7 @@ local function buildButton(parent, name)
 		ClipsDescendants = false,
 	}, parent)
 	make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, frame)
-	make("UIStroke", { Thickness = 2, Color = Color3.new(1, 1, 1), Transparency = 0.55 }, frame)
+	make("UIStroke", { Thickness = 1.5, Color = Color3.new(1, 1, 1), Transparency = 0.55 }, frame)
 	local label = make("TextLabel", {
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
@@ -121,7 +121,14 @@ function TouchControls.Init(actions)
 	enabled = true
 
 	local gui = make("ScreenGui", { Name = "TouchControls", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 6 }, player:WaitForChild("PlayerGui"))
-	local holder = make("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Active = false }, gui)
+	-- holder เป็นจุดขนาด 0 ที่มุมล่างขวาของจอ: UIScale ขยายรอบจุดนี้ ปุ่มจึงไม่หลุดจอ
+	-- (เดิม holder เต็มจอ — UIScale 1.5 บน iPad ขยายจากมุมซ้ายบน ดันปุ่มทั้งหมดออกนอกจอ)
+	local holder = make("Frame", {
+		Size = UDim2.fromScale(0, 0),
+		Position = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Active = false,
+	}, gui)
 	local scale = make("UIScale", {}, holder)
 	local camera = workspace.CurrentCamera
 	local function rescale()
@@ -131,13 +138,18 @@ function TouchControls.Init(actions)
 	camera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
 	rescale()
 
+	-- กระโดด: ControlModule ของ Roblox เขียน Humanoid.Jump ทับทุกเฟรม (ตามปุ่มกระโดดมาตรฐานที่เราซ่อนไว้)
+	-- จึงต้องตั้ง Jump = true ทุกเฟรมหลังมัน ตลอดที่นิ้วยังกดปุ่มอยู่ (กดค้าง = กระโดดต่อเนื่องเหมือนปุ่มเดิม)
 	local jump = buildButton(holder, "Jump")
-	jump.OnDown = function()
+	RunService:BindToRenderStep("TouchJumpHold", Enum.RenderPriority.Input.Value + 1, function()
+		if not jump.Touch then
+			return
+		end
 		local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 		if humanoid then
 			humanoid.Jump = true
 		end
-	end
+	end)
 
 	local attack = buildButton(holder, "Attack")
 	attack.OnDown, attack.OnUp = actions.AttackDown, actions.AttackUp
