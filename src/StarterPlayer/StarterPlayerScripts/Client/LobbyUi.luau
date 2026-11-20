@@ -29,8 +29,8 @@ local rankLabel, expFill, expLabel
 local stageLabel, stageHint, playButton, cancelButton, statusLabel, leftButton, rightButton
 local stagePanel, loadoutButton
 local statusUntil = 0
-local playAction = nil
-local touch = false -- คำสั่งของปุ่มเล่นตอนนี้: "Play" / "StartNow" / nil
+local playAction = nil -- คำสั่งของปุ่มเล่นตอนนี้: "Play" / "StartNow" / nil
+local touch = false
 
 local function make(className, props, parent)
 	local inst = Instance.new(className)
@@ -207,12 +207,13 @@ function LobbyUi.Refresh()
 	stagePanel.Size = UDim2.fromOffset(210, statusY + (statusLabel.Text ~= "" and 32 or 4))
 end
 
--- จอสัมผัส: ย่อแผงตามความสูงจอ (มือถือแนวนอนสูง ~400 px → ~0.6 เท่า, แท็บเล็ตเต็มขนาด)
+-- จอสัมผัส: ย่อแผงตามความสูงจอ (มือถือแนวนอนสูง ~340-400 px → 0.65 เท่า, แท็บเล็ตเต็มขนาด)
+-- ไม่ย่อต่ำกว่า 0.65: ตัวหนังสือ 12 px เหลือ ~8 px (0.55 เดิมเล็กจนอ่านไม่ออกบน Galaxy A06)
 local function touchScale(target)
 	local scale = Instance.new("UIScale")
 	local camera = workspace.CurrentCamera
 	local function rescale()
-		scale.Scale = math.clamp(camera.ViewportSize.Y / 660, 0.55, 1)
+		scale.Scale = math.clamp(camera.ViewportSize.Y / 660, 0.65, 1)
 	end
 	camera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
 	rescale()

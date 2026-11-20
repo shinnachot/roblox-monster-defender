@@ -291,12 +291,13 @@ end
 
 ---------------------------------------------------------------- สร้าง UI
 
--- จอสัมผัส: ย่อแผงตามความสูงจอ (มือถือแนวนอนสูง ~400 px → ~0.6 เท่า, แท็บเล็ตเต็มขนาด)
+-- จอสัมผัส: ย่อแผงตามความสูงจอ (มือถือแนวนอนสูง ~340-400 px → 0.65 เท่า, แท็บเล็ตเต็มขนาด)
+-- ไม่ย่อต่ำกว่า 0.65: ตัวหนังสือ 12 px เหลือ ~8 px (0.55 เดิมเล็กจนอ่านไม่ออกบน Galaxy A06)
 local function touchScale(target)
 	local scale = Instance.new("UIScale")
 	local camera = workspace.CurrentCamera
 	local function rescale()
-		scale.Scale = math.clamp(camera.ViewportSize.Y / 660, 0.55, 1)
+		scale.Scale = math.clamp(camera.ViewportSize.Y / 660, 0.65, 1)
 	end
 	camera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
 	rescale()
@@ -308,8 +309,8 @@ function PartyUi.Init(options)
 	gui = make("ScreenGui", { Name = "PartyUi", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 5, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, player:WaitForChild("PlayerGui"))
 	-- Sibling: ลูกวาดทับพื้นหลังของแม่เสมอ (Global ทำให้พื้นหน้าทีม ZIndex 5 บังเนื้อหาข้างใน)
 
-	-- ซ้ายกลาง: สมาชิกทีม + ปุ่มเปิดหน้าทีม
-	teamPanel = make("Frame", { Size = UDim2.fromOffset(240, 122), Position = touch and UDim2.new(0, 12, 0.27, 0) or UDim2.new(0, 24, 0.5, 0), AnchorPoint = Vector2.new(0, touch and 0 or 0.5), BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0.2, BorderSizePixel = 0, Visible = false }, gui)
+	-- ซ้ายกลาง: สมาชิกทีม + ปุ่มเปิดหน้าทีม (จอสัมผัส: ใต้แถบ HP ซึ่งจบที่ y = 100 — เดิม 27% ของจอทับแถบ HP บนมือถือจอเตี้ย)
+	teamPanel = make("Frame", { Size = UDim2.fromOffset(240, 122), Position = touch and UDim2.new(0, 12, 0, 108) or UDim2.new(0, 24, 0.5, 0), AnchorPoint = Vector2.new(0, touch and 0 or 0.5), BackgroundColor3 = PANEL_COLOR, BackgroundTransparency = 0.2, BorderSizePixel = 0, Visible = false }, gui)
 	corner(teamPanel, 12)
 	teamTitle = text({ Size = UDim2.new(1, 0, 0, 28), Position = UDim2.fromOffset(0, 6), Text = "ทีม", TextSize = 18, TextColor3 = Color3.fromRGB(210, 210, 210) }, teamPanel)
 	teamRows = make("Frame", { Size = UDim2.new(1, -20, 1, -82), Position = UDim2.fromOffset(10, 36), BackgroundTransparency = 1 }, teamPanel)

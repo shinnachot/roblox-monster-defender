@@ -112,7 +112,7 @@ local function hideDefaultJump()
 	end)
 end
 
--- actions: { AttackDown, AttackUp, BlockDown, BlockUp, Roll, ReviveDown, ReviveUp, CanRevive }
+-- actions: { AttackDown, AttackUp, BlockDown, BlockUp, Roll, ReviveDown, ReviveUp, CanRevive, IsBlocked }
 function TouchControls.Init(actions)
 	callbacks = actions
 	if not TouchControls.IsTouchDevice() then
@@ -180,6 +180,16 @@ function TouchControls.Init(actions)
 	end)
 
 	RunService.Heartbeat:Connect(function()
+		-- เปิดหน้าต่าง (คลัง/ทีม/หีบรางวัล) อยู่: ซ่อนปุ่มทั้งหมด ไม่ให้วาดทับหรือรับนิ้วแทนปุ่มของหน้าต่าง
+		local blocked = actions.IsBlocked ~= nil and actions.IsBlocked()
+		if gui.Enabled == blocked then
+			gui.Enabled = not blocked
+			if blocked then
+				for _, button in buttons do
+					release(button)
+				end
+			end
+		end
 		local remaining = rollReadyAt - os.clock()
 		if remaining > 0 then
 			roll.Overlay.Size = UDim2.fromScale(1, math.clamp(remaining / rollDuration, 0, 1))

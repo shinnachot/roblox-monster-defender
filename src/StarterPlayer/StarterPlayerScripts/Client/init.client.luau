@@ -601,6 +601,7 @@ TouchControls.Init({
 	CanRevive = function()
 		return Hud.GetReviveCandidate() ~= nil and isAlive()
 	end,
+	IsBlocked = LobbyUi.IsBlocked, -- หน้าต่างเปิดอยู่ -> ซ่อนปุ่มบนจอ
 })
 CameraController.Init()
 player.CharacterAdded:Connect(onCharacterAdded)
