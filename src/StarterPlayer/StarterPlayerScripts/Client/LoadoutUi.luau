@@ -6,6 +6,7 @@
 local Players = game:GetService("Players")
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("GameConfig"))
@@ -633,7 +634,8 @@ local function refreshDetail()
 		end
 	end
 	detail.Info.Text = table.concat(parts, "  ·  ")
-	detail.Desc.Text = item.Desc or ""
+	local touch = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+	detail.Desc.Text = (touch and item.TouchDesc) or item.Desc or ""
 	local stats = statsFor(id, lv)
 	for index, ui in detail.Stats do
 		local stat = stats[index]

@@ -1,5 +1,5 @@
 -- GameConfig: ค่าสมดุลเริ่มต้นทั้งหมด (GDD ข้อ 0)
--- เฟส 5 จะ override ค่าเหล่านี้ผ่าน ConfigService ได้ — ตอนนี้เป็นค่า default ในโค้ด
+-- ค่าในไฟล์นี้คือ default — Experience Configs (ConfigService) key "Balance" ทับได้โดยไม่ต้อง publish (ดูท้ายไฟล์)
 -- เวลาใน Anim (Start/Hit/Hold/End) คือวินาทีในคลิป animation ที่สร้างจาก generate_animation
 -- (คลิปยาว 3-6 วิ จึงเล่นเฉพาะช่วงที่เป็นท่าจริง แล้วเร่งด้วย Speed)
 -- ท่าฟันของอาวุธระยะประชิดแบ่ง 3 ช่วง (ดู SegmentTiming): เงื้อ (Speed) -> ฟาดเร็ว Strike..StrikeEnd (StrikeSpeed)
@@ -142,14 +142,15 @@ Config.Ranks = {
 -- Kind: Weapon / Armor / Ammo / Consumable; Upgradable = สุ่มได้ชิ้นส่วนและอัพเกรดได้
 -- Repeatable = ใส่ใน loadout ซ้ำได้หลายชิ้น; Order = ลำดับการ์ดในหน้า Loadout
 -- Model = โมเดลใน Assets.Weapons (เกราะ: Assets.Armors) ที่แสดงบนการ์ด (ไม่มี = ใช้ Icon แทน), Desc = คำอธิบายสั้นบนการ์ด
+-- TouchDesc = คำอธิบายแทน Desc บนจอสัมผัส (เมื่อ Desc พูดถึงปุ่มคีย์บอร์ด/เมาส์)
 -- Available = false: ยังไม่มีระบบต่อสู้จริง — แสดงเป็น "เร็ว ๆ นี้" ใส่ loadout ไม่ได้
 Config.Items = {
 	-- ดาบมาคู่กับโล่เสมอ (ไม่มีโล่แยกใน loadout) — ดู Config.Weapons.Sword.Shield
-	Sword = { Name = "ดาบโล่", Rank = "Bronze", Cost = 3, Kind = "Weapon", Upgradable = true, Order = 1, Model = "Sword", Desc = "คอมโบ 3 จังหวะ, คลิกขวาค้างยกโล่" },
+	Sword = { Name = "ดาบโล่", Rank = "Bronze", Cost = 3, Kind = "Weapon", Upgradable = true, Order = 1, Model = "Sword", Desc = "คอมโบ 3 จังหวะ, คลิกขวาค้างยกโล่", TouchDesc = "คอมโบ 3 จังหวะ, กดปุ่มโล่ค้างเพื่อยกโล่" },
 	Bow = { Name = "ธนู", Rank = "Bronze", Cost = 3, Kind = "Weapon", Upgradable = true, Order = 2, Model = "Bow", Desc = "กดค้างง้าง ยิงไกล — ใส่แล้วได้ลูกธนู 1 ชุดให้เอง" },
 	-- ลูกธนู: ใส่ได้เฉพาะเมื่อมีธนู และมีธนูต้องมีอย่างน้อย 1 ชุด (Progression.ValidateLoadout)
 	ExtraArrows = { Name = "ลูกธนู", Rank = "Bronze", Cost = 1, Kind = "Ammo", Repeatable = true, Arrows = 12, Order = 3, Model = "Arrow", Desc = "12 ดอกต่อชุด" },
-	Potion = { Name = "ยาฟื้น HP", Rank = "Bronze", Cost = 2, Kind = "Consumable", Charges = 2, Heal = 50, Order = 5, Icon = "🧪", Desc = "2 ขวด ขวดละ +50 HP (ปุ่ม F)" },
+	Potion = { Name = "ยาฟื้น HP", Rank = "Bronze", Cost = 2, Kind = "Consumable", Charges = 2, Heal = 50, Order = 5, Icon = "🧪", Desc = "2 ขวด ขวดละ +50 HP (ปุ่ม F)", TouchDesc = "2 ขวด ขวดละ +50 HP (แตะช่องยาเพื่อดื่ม)" },
 	Leather = { Name = "เกราะหนัง", Rank = "Bronze", Cost = 2, Kind = "Armor", Upgradable = true, Order = 6, Model = "LeatherArmor", Icon = "🦺", Desc = "เกราะ 25" },
 	Spear = { Name = "หอก", Rank = "Silver", Cost = 4, Kind = "Weapon", Upgradable = true, Order = 7, Icon = "🔱", Desc = "ระยะตีไกล", Available = false },
 	Chain = { Name = "เกราะโซ่", Rank = "Silver", Cost = 4, Kind = "Armor", Upgradable = true, Order = 8, Icon = "⛓️", Desc = "เกราะ 50" },
@@ -400,6 +401,102 @@ function Config.SegmentTiming(seg)
 	local recover = (stop - seg.StrikeEnd) / (seg.RecoverSpeed or speed)
 	local hit = windup + (seg.Hit - seg.Strike) / seg.StrikeSpeed
 	return hit, windup + strike + recover, windup, windup + strike
+end
+
+---------------------------------------------------------------- Balance จาก ConfigService (เฟส 5)
+-- Creator Hub > Experience Configs: key "Balance" ชนิด JSON (หรือ String ที่เป็น JSON) เช่น
+--   { "Monsters": { "Goblin": { "HP": 70 } }, "Waves": { "Stages": { "1": [ { "Goblin": 10 } ] } }, "Rewards": { "Win": { "ExpPerStage": 120 } } }
+-- กติกา: ทับได้เฉพาะค่าตัวเลข/true-false ที่มีอยู่แล้วในไฟล์นี้ (ชนิดต้องตรง) ในหมวด BALANCE_SECTIONS
+--   key ที่สะกดผิด/ชนิดไม่ตรง/หมวดอื่น -> ข้ามแล้ว warn ใน Output (ไม่ทำให้เกมพัง); เพิ่ม key ใหม่ไม่ได้
+-- อ่านครั้งเดียวตอน server เริ่ม: server แมตช์เป็น reserved server ใหม่ทุกแมตช์ จึงได้ค่าล่าสุดทุกแมตช์
+--   (Lobby ได้ค่าใหม่เมื่อเปิด server ใหม่) — ไม่เปลี่ยนกลางแมตช์ เพราะหลายโมดูลเก็บค่าไว้ตั้งแต่ require
+-- server ส่ง JSON ที่ใช้จริงให้ client ผ่าน attribute ของ ReplicatedStorage -> สองฝั่งใช้ค่าเดียวกัน
+local BALANCE_KEY = "Balance"
+local BALANCE_ATTRIBUTE = "BalanceOverrides"
+local BALANCE_SECTIONS = {
+	Player = true, Roll = true, HeadshotMultiplier = true, Base = true, Weapons = true, Armors = true,
+	Items = true, Loadout = true, Rewards = true, Upgrade = true, Monsters = true, Downed = true,
+	Pickup = true, AI = true, Ranks = true, Waves = true,
+}
+
+local function mergeBalance(target, patch, path, stats)
+	for key, value in patch do
+		local k = key
+		-- JSON object มี key เป็นข้อความ ("1") แต่ตารางในไฟล์นี้ใช้เลข [1]
+		if target[k] == nil and type(k) == "string" and tonumber(k) ~= nil and target[tonumber(k)] ~= nil then
+			k = tonumber(k)
+		end
+		local current = target[k]
+		local where = path .. "." .. tostring(key)
+		if type(current) == "table" and type(value) == "table" then
+			mergeBalance(current, value, where, stats)
+		elseif current ~= nil and type(value) == type(current) and (type(value) == "number" or type(value) == "boolean") then
+			target[k] = value
+			stats.Applied += 1
+		else
+			stats.Skipped += 1
+			warn(string.format("[Balance] ข้าม %s (ไม่มีในค่า default หรือชนิดไม่ตรง)", where))
+		end
+	end
+end
+
+local function applyBalance(json)
+	if type(json) ~= "string" or json == "" then
+		return
+	end
+	local HttpService = game:GetService("HttpService")
+	local ok, patch = pcall(HttpService.JSONDecode, HttpService, json)
+	if not ok or type(patch) ~= "table" then
+		warn("[Balance] JSON อ่านไม่ได้ — ใช้ค่า default ทั้งหมด:", patch)
+		return
+	end
+	local stats = { Applied = 0, Skipped = 0 }
+	for section, value in patch do
+		if not BALANCE_SECTIONS[section] then
+			stats.Skipped += 1
+			warn(string.format("[Balance] ข้ามหมวด %s (ทับผ่าน ConfigService ไม่ได้)", tostring(section)))
+		elseif type(Config[section]) == "table" and type(value) == "table" then
+			mergeBalance(Config[section], value, section, stats)
+		elseif type(Config[section]) == type(value) and type(value) == "number" then
+			Config[section] = value
+			stats.Applied += 1
+		else
+			stats.Skipped += 1
+			warn(string.format("[Balance] ข้าม %s (ชนิดไม่ตรง)", tostring(section)))
+		end
+	end
+	print(string.format("[Balance] ใช้ค่าจาก ConfigService %d ค่า, ข้าม %d", stats.Applied, stats.Skipped))
+end
+
+do
+	local RunService = game:GetService("RunService")
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	if RunService:IsRunning() then -- ไม่ทำใน Edit mode (attribute จะติดไปกับ place)
+		if RunService:IsServer() then
+			local json = ""
+			local ok, result = pcall(function()
+				local value = game:GetService("ConfigService"):GetConfigAsync():GetValue(BALANCE_KEY)
+				if type(value) == "table" then
+					return game:GetService("HttpService"):JSONEncode(value)
+				end
+				return value
+			end)
+			if ok and type(result) == "string" then
+				json = result
+			elseif not ok then
+				warn("[Balance] โหลด ConfigService ไม่ได้ — ใช้ค่า default:", result)
+			end
+			applyBalance(json)
+			ReplicatedStorage:SetAttribute(BALANCE_ATTRIBUTE, json) -- "" = ใช้ค่า default
+		else
+			-- client: รอค่าที่ server ใช้ (ปกติมีแล้วตั้งแต่เข้าเกม)
+			local deadline = os.clock() + 10
+			while ReplicatedStorage:GetAttribute(BALANCE_ATTRIBUTE) == nil and os.clock() < deadline do
+				task.wait(0.1)
+			end
+			applyBalance(ReplicatedStorage:GetAttribute(BALANCE_ATTRIBUTE))
+		end
+	end
 end
 
 return Config
