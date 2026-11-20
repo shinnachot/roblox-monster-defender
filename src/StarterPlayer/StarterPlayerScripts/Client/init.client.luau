@@ -27,6 +27,7 @@ local LoadoutUi = require(script:WaitForChild("LoadoutUi"))
 local RewardUi = require(script:WaitForChild("RewardUi"))
 require(script:WaitForChild("MonsterPose")) -- ท่าเล็งของ monster ยิงไกล (ทำงานเอง)
 require(script:WaitForChild("RankBadges")) -- ป้าย rank เหนือหัวผู้เล่น (ทำงานเอง)
+require(script:WaitForChild("MusicController")) -- เพลงตามสถานะเกม + ปุ่มปิดเพลง (ทำงานเอง)
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
