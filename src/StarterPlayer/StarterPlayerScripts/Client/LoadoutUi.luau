@@ -70,6 +70,10 @@ local message, messageIsError, messageUntil = "", false, 0
 -- ui refs
 local pointsLabel, pointsSub, segments, slotList, statusLabel
 local detail = {}
+-- มือถือ (จอเตี้ย): แสดงทีละหน้า "Equipped" (แต้ม + ช่องที่ใส่) / "Inventory" (การ์ด + รายละเอียด)
+local compact = false
+local pages, pageTabs = {}, {}
+local page = "Equipped"
 
 local function make(className, props, parent)
 	local inst = Instance.new(className)
@@ -197,6 +201,7 @@ local function weaponCount()
 end
 
 local save -- ประกาศล่วงหน้า (scheduleSave เรียก)
+local showPage -- ประกาศล่วงหน้า (แถวช่องอุปกรณ์เรียก)
 
 -- เปลี่ยน draft แล้ว: วาดใหม่ + บันทึกอัตโนมัติหลังหยุดกดสักครู่
 local function changed()
@@ -341,6 +346,22 @@ local function setFilter(tabId)
 	LoadoutUi.Refresh()
 end
 
+-- มือถือ: สลับหน้า (คอมแสดงทั้งสองฝั่งพร้อมกัน -> ไม่ทำอะไร)
+function showPage(name)
+	if not compact then
+		return
+	end
+	page = name
+	for id, frame in pages do
+		frame.Visible = id == name
+	end
+	for id, tab in pageTabs do
+		local on = id == name
+		tab.BackgroundColor3 = on and BLUE or Color3.fromRGB(38, 42, 54)
+		tab.TextColor3 = on and Color3.new(1, 1, 1) or Color3.fromRGB(200, 205, 215)
+	end
+end
+
 ---------------------------------------------------------------- ช่องอุปกรณ์ด้านซ้าย
 
 local function clearRows()
@@ -375,6 +396,7 @@ local function filledRow(id, order, keyNumber)
 	end)
 	row.Activated:Connect(function()
 		selectItem(id)
+		showPage("Inventory") -- มือถือ: ไปดูรายละเอียด/อัพเกรด
 	end)
 end
 
@@ -386,6 +408,7 @@ local function emptyRow(label, order, highlight, tabId)
 	if tabId then
 		row.Activated:Connect(function()
 			setFilter(tabId)
+			showPage("Inventory") -- มือถือ: ไปเลือกจากคลัง
 		end)
 	end
 end
@@ -434,7 +457,7 @@ local function refreshSlots()
 		filledRow(id, nextOrder(), index)
 	end
 	for index = #weapons + 1, Config.Loadout.MaxWeapons do
-		emptyRow(index == #weapons + 1 and "เลือกอาวุธทางขวา" or "ว่าง", nextOrder(), index == #weapons + 1, "Weapon")
+		emptyRow(index == #weapons + 1 and (compact and "แตะเพื่อเลือกอาวุธจากคลัง" or "เลือกอาวุธทางขวา") or "ว่าง", nextOrder(), index == #weapons + 1, "Weapon")
 	end
 	if table.find(draft, "Bow") then
 		arrowRow(nextOrder())
@@ -671,6 +694,9 @@ function LoadoutUi.Refresh()
 	for index, segment in segments do
 		segment.BackgroundColor3 = index <= used and (over and RED or BLUE) or Color3.fromRGB(40, 44, 56)
 	end
+	if pageTabs.Equipped then
+		pageTabs.Equipped.Text = string.format("ที่ใส่อยู่ %d/%d", used, points)
+	end
 
 	refreshSlots()
 	refreshCards()
@@ -698,12 +724,71 @@ end
 
 local PANEL_SIZE = Vector2.new(980, 620)
 local LEFT_W = 330
+-- มือถือแนวนอน (จอเตี้ย): หน้าต่างเล็กลงและแสดงทีละหน้า (ที่ใส่อยู่ / คลัง) — ย่อน้อยลง ตัวหนังสืออ่านออก
+-- (หน้าเต็ม 980×620 บนจอสูง 338 ถูกย่อเหลือ 0.41 เท่า ตัวหนังสือเหลือ 4-6 px)
+local COMPACT_SIZE = Vector2.new(640, 340)
+local COMPACT_MAX_HEIGHT = 520
+
+-- ตำแหน่งชิ้นส่วนในแผงรายละเอียด: คอม = แถวยาวใต้ตาราง, มือถือ = คอลัมน์แคบข้างตาราง
+local DETAIL_LAYOUT = {
+	Wide = {
+		Preview = { UDim2.fromOffset(76, 76), UDim2.fromOffset(12, 12) },
+		Name = { UDim2.fromOffset(140, 22), UDim2.fromOffset(98, 10), 17 },
+		Info = { UDim2.fromOffset(140, 14), UDim2.fromOffset(98, 34), 11 },
+		Desc = { UDim2.fromOffset(140, 60), UDim2.fromOffset(98, 52), 10 },
+		Stat = { Width = 212, X = 252, Y = 12, Step = 26, Height = 22, LabelW = 66, BarX = 68, BarW = 62, ValueW = 78, TextSize = 11 },
+		Action = { UDim2.fromOffset(100, 40), UDim2.new(1, -12, 0, 12), Vector2.new(1, 0), 16 },
+		Upgrade = { UDim2.fromOffset(100, 30), UDim2.new(1, -12, 0, 58), Vector2.new(1, 0), 11 },
+		Parts = { UDim2.fromOffset(100, 14), UDim2.new(1, -12, 0, 96), Vector2.new(1, 0), 9 },
+	},
+	Compact = {
+		Preview = { UDim2.fromOffset(60, 60), UDim2.fromOffset(10, 10) },
+		Name = { UDim2.fromOffset(98, 22), UDim2.fromOffset(76, 10), 16 },
+		Info = { UDim2.fromOffset(98, 32), UDim2.fromOffset(76, 34), 11 },
+		Desc = { UDim2.fromOffset(160, 44), UDim2.fromOffset(10, 76), 11 },
+		Stat = { Width = 160, X = 10, Y = 124, Step = 21, Height = 20, LabelW = 58, BarX = 58, BarW = 30, ValueW = 72, TextSize = 11 },
+		Action = { UDim2.fromOffset(76, 36), UDim2.fromOffset(10, 210), Vector2.zero, 15 },
+		Upgrade = { UDim2.fromOffset(78, 36), UDim2.fromOffset(92, 210), Vector2.zero, 11 },
+		Parts = { UDim2.fromOffset(160, 16), UDim2.fromOffset(10, 254), Vector2.zero, 10 },
+	},
+}
+
+local function buildDetail(box)
+	local L = compact and DETAIL_LAYOUT.Compact or DETAIL_LAYOUT.Wide
+	detail.Root = box
+	detail.Preview = make("Frame", { Size = L.Preview[1], Position = L.Preview[2], BackgroundColor3 = Color3.fromRGB(40, 58, 86), BorderSizePixel = 0 }, box)
+	corner(detail.Preview, 10)
+	detail.Name = text({ Size = L.Name[1], Position = L.Name[2], Text = "", TextSize = L.Name[3], TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd }, box)
+	detail.Info = text({ Size = L.Info[1], Position = L.Info[2], Text = "", TextSize = L.Info[3], TextColor3 = Color3.fromRGB(110, 175, 255), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = compact, TextTruncate = compact and Enum.TextTruncate.None or Enum.TextTruncate.AtEnd }, box)
+	detail.Desc = text({ Size = L.Desc[1], Position = L.Desc[2], Text = "", TextSize = L.Desc[3], FontFace = FONT_REGULAR, TextColor3 = Color3.fromRGB(200, 205, 215), TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top }, box)
+	detail.Stats = {}
+	local S = L.Stat
+	for index = 1, 4 do
+		local cell = make("Frame", { Size = UDim2.fromOffset(S.Width, S.Height), Position = UDim2.fromOffset(S.X, S.Y + (index - 1) * S.Step), BackgroundTransparency = 1 }, box)
+		local label = text({ Size = UDim2.fromOffset(S.LabelW, S.Height), Text = "", TextSize = S.TextSize, TextColor3 = MUTED, TextXAlignment = Enum.TextXAlignment.Left }, cell)
+		local back = make("Frame", { Size = UDim2.fromOffset(S.BarW, 8), Position = UDim2.new(0, S.BarX, 0.5, 0), AnchorPoint = Vector2.new(0, 0.5), BackgroundColor3 = DARK, BorderSizePixel = 0 }, cell)
+		corner(back, 4)
+		local fill = make("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromRGB(80, 190, 255), BorderSizePixel = 0 }, back)
+		corner(fill, 4)
+		local value = text({ Size = UDim2.fromOffset(S.ValueW, S.Height), Position = UDim2.new(1, 0, 0, 0), AnchorPoint = Vector2.new(1, 0), Text = "", TextSize = S.TextSize, TextXAlignment = Enum.TextXAlignment.Right }, cell)
+		detail.Stats[index] = { Cell = cell, Label = label, Fill = fill, Value = value }
+	end
+	detail.Action = button({ Size = L.Action[1], Position = L.Action[2], AnchorPoint = L.Action[3], Text = "", TextSize = L.Action[4], BackgroundColor3 = BLUE }, box, 10)
+	detail.Upgrade = button({ Size = L.Upgrade[1], Position = L.Upgrade[2], AnchorPoint = L.Upgrade[3], Text = "", TextSize = L.Upgrade[4], TextWrapped = true, BackgroundColor3 = Color3.fromRGB(48, 53, 66) }, box, 8)
+	detail.PartsBack = make("Frame", { Size = L.Parts[1], Position = L.Parts[2], AnchorPoint = L.Parts[3], BackgroundColor3 = DARK, BorderSizePixel = 0 }, box)
+	corner(detail.PartsBack, 7)
+	detail.PartsFill = make("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromRGB(110, 170, 255), BorderSizePixel = 0 }, detail.PartsBack)
+	corner(detail.PartsFill, 7)
+	detail.PartsLabel = text({ Size = UDim2.fromScale(1, 1), Text = "", TextSize = L.Parts[4], ZIndex = 2 }, detail.PartsBack)
+end
 
 local function build()
 	gui = make("ScreenGui", { Name = "LoadoutUi", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 10, Enabled = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, player:WaitForChild("PlayerGui"))
 	make("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, BorderSizePixel = 0 }, gui)
 
-	local panel = make("Frame", { Size = UDim2.fromOffset(PANEL_SIZE.X, PANEL_SIZE.Y), Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = PANEL_COLOR, BorderSizePixel = 0 }, gui)
+	compact = workspace.CurrentCamera.ViewportSize.Y < COMPACT_MAX_HEIGHT
+	local size = compact and COMPACT_SIZE or PANEL_SIZE
+	local panel = make("Frame", { Size = UDim2.fromOffset(size.X, size.Y), Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = PANEL_COLOR, BorderSizePixel = 0 }, gui)
 	corner(panel, 16)
 	make("UIStroke", { Color = Color3.fromRGB(50, 56, 72), Thickness = 1.5 }, panel)
 	-- ย่อให้พอดีจอเล็ก (มือถือ)
@@ -712,21 +797,45 @@ local function build()
 		local view = workspace.CurrentCamera.ViewportSize
 		-- เว้นแถบปุ่มของ Roblox ด้านบน (inset) ไม่ให้ทับหัวหน้าต่าง
 		local inset = GuiService:GetGuiInset().Y
-		scale.Scale = math.min(1, (view.X - 24) / PANEL_SIZE.X, (view.Y - inset - 24) / PANEL_SIZE.Y)
+		local margin = compact and 8 or 24
+		scale.Scale = math.min(compact and 1.2 or 1, (view.X - margin) / size.X, (view.Y - inset - margin) / size.Y)
 		panel.Position = UDim2.new(0.5, 0, 0.5, inset / 2)
 	end
 	fit()
 	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
 
 	-- หัว
-	text({ Size = UDim2.fromOffset(300, 40), Position = UDim2.fromOffset(22, 12), Text = "LOADOUT", TextSize = 32, TextXAlignment = Enum.TextXAlignment.Left }, panel)
-	text({ Size = UDim2.fromOffset(300, 20), Position = UDim2.fromOffset(170, 24), Text = "คลังอาวุธ", TextSize = 15, FontFace = FONT_REGULAR, TextColor3 = MUTED, TextXAlignment = Enum.TextXAlignment.Left }, panel)
-	local close = button({ Size = UDim2.fromOffset(44, 44), Position = UDim2.new(1, -16, 0, 12), AnchorPoint = Vector2.new(1, 0), Text = "X", TextSize = 22, BackgroundColor3 = Color3.fromRGB(40, 44, 56) }, panel, 10)
+	local close = button({ Size = UDim2.fromOffset(44, 44), Position = UDim2.new(1, compact and -8 or -16, 0, compact and 6 or 12), AnchorPoint = Vector2.new(1, 0), Text = "X", TextSize = 22, BackgroundColor3 = Color3.fromRGB(40, 44, 56) }, panel, 10)
 	close.Activated:Connect(LoadoutUi.Close)
-	make("Frame", { Size = UDim2.new(1, -40, 0, 1), Position = UDim2.fromOffset(20, 64), BackgroundColor3 = Color3.fromRGB(46, 51, 64), BorderSizePixel = 0 }, panel)
+	local left, right
+	if compact then
+		-- แท็บหน้า: ที่ใส่อยู่ / คลัง
+		local pageBar = make("Frame", { Size = UDim2.fromOffset(330, 40), Position = UDim2.fromOffset(12, 8), BackgroundTransparency = 1 }, panel)
+		make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, pageBar)
+		for index, id in { "Equipped", "Inventory" } do
+			local b = button({ Size = UDim2.fromOffset(0, 40), AutomaticSize = Enum.AutomaticSize.X, Text = id == "Equipped" and "ที่ใส่อยู่" or "คลัง", TextSize = 17, LayoutOrder = index, BackgroundColor3 = Color3.fromRGB(38, 42, 54) }, pageBar, 20)
+			make("UIPadding", { PaddingLeft = UDim.new(0, 18), PaddingRight = UDim.new(0, 18) }, b)
+			b.Activated:Connect(function()
+				showPage(id)
+			end)
+			pageTabs[id] = b
+		end
+		statusLabel = text({ Size = UDim2.fromOffset(220, 40), Position = UDim2.new(1, -60, 0, 8), AnchorPoint = Vector2.new(1, 0), Text = "", TextSize = 13, TextXAlignment = Enum.TextXAlignment.Right, TextWrapped = true }, panel)
+		make("Frame", { Size = UDim2.new(1, -24, 0, 1), Position = UDim2.fromOffset(12, 54), BackgroundColor3 = Color3.fromRGB(46, 51, 64), BorderSizePixel = 0 }, panel)
+		pages.Equipped = make("Frame", { Size = UDim2.new(1, -24, 1, -70), Position = UDim2.fromOffset(12, 62), BackgroundTransparency = 1 }, panel)
+		pages.Inventory = make("Frame", { Size = UDim2.new(1, -24, 1, -70), Position = UDim2.fromOffset(12, 62), BackgroundTransparency = 1, Visible = false }, panel)
+		left = make("Frame", { Size = UDim2.new(0, 190, 1, 0), BackgroundTransparency = 1 }, pages.Equipped)
+		right = pages.Inventory
+	else
+		text({ Size = UDim2.fromOffset(300, 40), Position = UDim2.fromOffset(22, 12), Text = "LOADOUT", TextSize = 32, TextXAlignment = Enum.TextXAlignment.Left }, panel)
+		text({ Size = UDim2.fromOffset(300, 20), Position = UDim2.fromOffset(170, 24), Text = "คลังอาวุธ", TextSize = 15, FontFace = FONT_REGULAR, TextColor3 = MUTED, TextXAlignment = Enum.TextXAlignment.Left }, panel)
+		make("Frame", { Size = UDim2.new(1, -40, 0, 1), Position = UDim2.fromOffset(20, 64), BackgroundColor3 = Color3.fromRGB(46, 51, 64), BorderSizePixel = 0 }, panel)
+		left = make("Frame", { Size = UDim2.new(0, LEFT_W, 1, -86), Position = UDim2.fromOffset(20, 76), BackgroundTransparency = 1 }, panel)
+		local rightX = 20 + LEFT_W + 20
+		right = make("Frame", { Size = UDim2.new(1, -(rightX + 20), 1, -86), Position = UDim2.fromOffset(rightX, 76), BackgroundTransparency = 1 }, panel)
+	end
 
-	-- ซ้าย: แต้ม + ช่องอุปกรณ์
-	local left = make("Frame", { Size = UDim2.new(0, LEFT_W, 1, -86), Position = UDim2.fromOffset(20, 76), BackgroundTransparency = 1 }, panel)
+	-- ซ้าย: แต้ม + ช่องอุปกรณ์ (มือถือ: แต้มเป็นคอลัมน์ซ้าย ช่องอุปกรณ์เลื่อนได้ทางขวา)
 	pointsLabel = text({ Size = UDim2.fromOffset(90, 34), Text = "", TextSize = 28, TextXAlignment = Enum.TextXAlignment.Left, AutomaticSize = Enum.AutomaticSize.X }, left)
 	text({ Size = UDim2.fromOffset(60, 34), Position = UDim2.fromOffset(92, 2), Text = "แต้ม", TextSize = 14, TextColor3 = Color3.fromRGB(200, 205, 215), TextXAlignment = Enum.TextXAlignment.Left }, left)
 	local bar = make("Frame", { Size = UDim2.new(1, 0, 0, 10), Position = UDim2.fromOffset(0, 40), BackgroundTransparency = 1 }, left)
@@ -738,8 +847,15 @@ local function build()
 		corner(segment, 3)
 		segments[index] = segment
 	end
-	pointsSub = text({ Size = UDim2.new(1, 0, 0, 16), Position = UDim2.fromOffset(0, 54), Text = "", TextSize = 12, FontFace = FONT_REGULAR, TextColor3 = MUTED, TextXAlignment = Enum.TextXAlignment.Left }, left)
-	slotList = make("Frame", { Size = UDim2.new(1, 0, 1, -128), Position = UDim2.fromOffset(0, 78), BackgroundTransparency = 1 }, left)
+	pointsSub = text({ Size = UDim2.new(1, 0, 0, compact and 36 or 16), Position = UDim2.fromOffset(0, 54), Text = "", TextSize = compact and 13 or 12, FontFace = FONT_REGULAR, TextColor3 = MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = compact }, left)
+	if compact then
+		slotList = make("ScrollingFrame", {
+			Size = UDim2.new(1, -202, 1, 0), Position = UDim2.fromOffset(202, 0), BackgroundTransparency = 1, BorderSizePixel = 0,
+			ScrollBarThickness = 4, ScrollBarImageColor3 = Color3.fromRGB(90, 96, 112), AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), ScrollingDirection = Enum.ScrollingDirection.Y,
+		}, pages.Equipped)
+	else
+		slotList = make("Frame", { Size = UDim2.new(1, 0, 1, -128), Position = UDim2.fromOffset(0, 78), BackgroundTransparency = 1 }, left)
+	end
 	make("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, slotList)
 	local reset = button({ Size = UDim2.fromOffset(140, 36), Position = UDim2.new(0, 0, 1, -36), Text = "ชุดเริ่มต้น", TextSize = 14, BackgroundColor3 = Color3.fromRGB(40, 44, 56), TextColor3 = Color3.fromRGB(205, 210, 220) }, left)
 	reset.Activated:Connect(function()
@@ -747,27 +863,28 @@ local function build()
 		changed()
 	end)
 
-	-- ขวา: แท็บ + การ์ด + รายละเอียด
-	local rightX = 20 + LEFT_W + 20
-	local right = make("Frame", { Size = UDim2.new(1, -(rightX + 20), 1, -86), Position = UDim2.fromOffset(rightX, 76), BackgroundTransparency = 1 }, panel)
-	local tabBar = make("Frame", { Size = UDim2.new(1, -170, 0, 36), BackgroundTransparency = 1 }, right)
-	make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, tabBar)
+	-- ขวา: แท็บ + การ์ด + รายละเอียด (มือถือ: รายละเอียดเป็นคอลัมน์ข้างตาราง)
+	local DETAIL_W = 180
+	local tabBar = make("Frame", { Size = compact and UDim2.new(1, -(DETAIL_W + 12), 0, 34) or UDim2.new(1, -170, 0, 36), BackgroundTransparency = 1 }, right)
+	make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, compact and 6 or 8), SortOrder = Enum.SortOrder.LayoutOrder }, tabBar)
 	for index, tab in TABS do
-		local b = button({ Size = UDim2.fromOffset(0, 36), AutomaticSize = Enum.AutomaticSize.X, Text = tab.Text, TextSize = 14, LayoutOrder = index, BackgroundColor3 = Color3.fromRGB(38, 42, 54) }, tabBar, 18)
-		make("UIPadding", { PaddingLeft = UDim.new(0, 18), PaddingRight = UDim.new(0, 18) }, b)
+		local b = button({ Size = UDim2.fromOffset(0, compact and 34 or 36), AutomaticSize = Enum.AutomaticSize.X, Text = tab.Text, TextSize = compact and 15 or 14, LayoutOrder = index, BackgroundColor3 = Color3.fromRGB(38, 42, 54) }, tabBar, 18)
+		make("UIPadding", { PaddingLeft = UDim.new(0, compact and 14 or 18), PaddingRight = UDim.new(0, compact and 14 or 18) }, b)
 		b.Activated:Connect(function()
 			setFilter(tab.Id)
 		end)
 		tabs[tab.Id] = b
 	end
-	statusLabel = text({ Size = UDim2.fromOffset(260, 36), Position = UDim2.new(1, 0, 0, 0), AnchorPoint = Vector2.new(1, 0), Text = "", TextSize = 13, TextXAlignment = Enum.TextXAlignment.Right, TextWrapped = true }, right)
+	if not compact then
+		statusLabel = text({ Size = UDim2.fromOffset(260, 36), Position = UDim2.new(1, 0, 0, 0), AnchorPoint = Vector2.new(1, 0), Text = "", TextSize = 13, TextXAlignment = Enum.TextXAlignment.Right, TextWrapped = true }, right)
+	end
 
 	local grid = make("ScrollingFrame", {
-		Size = UDim2.new(1, 0, 1, -180), Position = UDim2.fromOffset(0, 46), BackgroundTransparency = 1, BorderSizePixel = 0,
-		ScrollBarThickness = 5, ScrollBarImageColor3 = Color3.fromRGB(90, 96, 112), AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), ScrollingDirection = Enum.ScrollingDirection.Y,
+		Size = compact and UDim2.new(1, -(DETAIL_W + 8), 1, -42) or UDim2.new(1, 0, 1, -180), Position = UDim2.fromOffset(0, compact and 42 or 46), BackgroundTransparency = 1, BorderSizePixel = 0,
+		ScrollBarThickness = compact and 4 or 5, ScrollBarImageColor3 = Color3.fromRGB(90, 96, 112), AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), ScrollingDirection = Enum.ScrollingDirection.Y,
 	}, right)
-	make("UIGridLayout", { CellSize = UDim2.fromOffset(136, 142), CellPadding = UDim2.fromOffset(10, 10), SortOrder = Enum.SortOrder.LayoutOrder }, grid)
-	make("UIPadding", { PaddingTop = UDim.new(0, 3), PaddingLeft = UDim.new(0, 3), PaddingBottom = UDim.new(0, 3) }, grid)
+	make("UIGridLayout", { CellSize = UDim2.fromOffset(136, 142), CellPadding = UDim2.fromOffset(compact and 6 or 10, compact and 6 or 10), SortOrder = Enum.SortOrder.LayoutOrder }, grid)
+	make("UIPadding", { PaddingTop = UDim.new(0, 3), PaddingLeft = UDim.new(0, compact and 1 or 3), PaddingBottom = UDim.new(0, 3) }, grid)
 	for id, item in Config.Items do
 		if item.Kind ~= "Ammo" then -- ลูกธนูจัดในช่องซ้ายเท่านั้น
 			buildCard(id, grid)
@@ -775,34 +892,16 @@ local function build()
 	end
 
 	-- แผงรายละเอียดไอเท็มที่เลือก
-	local box = make("Frame", { Size = UDim2.new(1, 0, 0, 124), Position = UDim2.new(0, 0, 1, -124), BackgroundColor3 = Color3.fromRGB(28, 32, 42), BorderSizePixel = 0 }, right)
+	local box = make("Frame", {
+		Size = compact and UDim2.new(0, DETAIL_W, 1, 0) or UDim2.new(1, 0, 0, 124),
+		Position = compact and UDim2.new(1, 0, 0, 0) or UDim2.new(0, 0, 1, -124),
+		AnchorPoint = compact and Vector2.new(1, 0) or Vector2.zero,
+		BackgroundColor3 = Color3.fromRGB(28, 32, 42), BorderSizePixel = 0,
+	}, right)
 	corner(box, 12)
 	make("UIStroke", { Color = Color3.fromRGB(48, 54, 70), Thickness = 1 }, box)
-	detail.Root = box
-	-- แถวเดียวแบบกระชับ: รูป | ชื่อ + คำอธิบาย | ค่าสถานะ 4 แถว | ปุ่ม
-	detail.Preview = make("Frame", { Size = UDim2.fromOffset(76, 76), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Color3.fromRGB(40, 58, 86), BorderSizePixel = 0 }, box)
-	corner(detail.Preview, 10)
-	detail.Name = text({ Size = UDim2.fromOffset(140, 22), Position = UDim2.fromOffset(98, 10), Text = "", TextSize = 17, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd }, box)
-	detail.Info = text({ Size = UDim2.fromOffset(140, 14), Position = UDim2.fromOffset(98, 34), Text = "", TextSize = 11, TextColor3 = Color3.fromRGB(110, 175, 255), TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd }, box)
-	detail.Desc = text({ Size = UDim2.fromOffset(140, 60), Position = UDim2.fromOffset(98, 52), Text = "", TextSize = 10, FontFace = FONT_REGULAR, TextColor3 = Color3.fromRGB(200, 205, 215), TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top }, box)
-	detail.Stats = {}
-	for index = 1, 4 do
-		local cell = make("Frame", { Size = UDim2.fromOffset(212, 22), Position = UDim2.fromOffset(252, 12 + (index - 1) * 26), BackgroundTransparency = 1 }, box)
-		local label = text({ Size = UDim2.fromOffset(66, 22), Text = "", TextSize = 11, TextColor3 = MUTED, TextXAlignment = Enum.TextXAlignment.Left }, cell)
-		local back = make("Frame", { Size = UDim2.fromOffset(62, 8), Position = UDim2.new(0, 68, 0.5, 0), AnchorPoint = Vector2.new(0, 0.5), BackgroundColor3 = DARK, BorderSizePixel = 0 }, cell)
-		corner(back, 4)
-		local fill = make("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromRGB(80, 190, 255), BorderSizePixel = 0 }, back)
-		corner(fill, 4)
-		local value = text({ Size = UDim2.fromOffset(78, 22), Position = UDim2.new(1, 0, 0, 0), AnchorPoint = Vector2.new(1, 0), Text = "", TextSize = 11, TextXAlignment = Enum.TextXAlignment.Right }, cell)
-		detail.Stats[index] = { Cell = cell, Label = label, Fill = fill, Value = value }
-	end
-	detail.Action = button({ Size = UDim2.fromOffset(100, 40), Position = UDim2.new(1, -12, 0, 12), AnchorPoint = Vector2.new(1, 0), Text = "", TextSize = 16, BackgroundColor3 = BLUE }, box, 10)
-	detail.Upgrade = button({ Size = UDim2.fromOffset(100, 30), Position = UDim2.new(1, -12, 0, 58), AnchorPoint = Vector2.new(1, 0), Text = "", TextSize = 11, BackgroundColor3 = Color3.fromRGB(48, 53, 66) }, box, 8)
-	detail.PartsBack = make("Frame", { Size = UDim2.fromOffset(100, 14), Position = UDim2.new(1, -12, 0, 96), AnchorPoint = Vector2.new(1, 0), BackgroundColor3 = DARK, BorderSizePixel = 0 }, box)
-	corner(detail.PartsBack, 7)
-	detail.PartsFill = make("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromRGB(110, 170, 255), BorderSizePixel = 0 }, detail.PartsBack)
-	corner(detail.PartsFill, 7)
-	detail.PartsLabel = text({ Size = UDim2.fromScale(1, 1), Text = "", TextSize = 9, ZIndex = 2 }, detail.PartsBack)
+	buildDetail(box)
+	showPage(page)
 	detail.Action.Activated:Connect(function()
 		local id = selectedId
 		if not id or isLocked(id) then
