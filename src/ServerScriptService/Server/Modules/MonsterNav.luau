@@ -51,6 +51,51 @@ end
 
 -- ทิศถอยออกจากสิ่งกีดขวางเมื่อหาเส้นทางจากจุดที่ยืนไม่ได้ (เทียบกับทิศไปเป้า: ข้าง ๆ ก่อน แล้วค่อยถอยหลัง)
 local NUDGE_ANGLES = { 90, -90, 135, -135, 180, 45, -45 }
+local NUDGE_EXTRA = { 2.5, 1, 4 } -- ระยะถอย = รัศมี agent + ค่านี้ (ลองใกล้ก่อน)
+
+-- ทางเดินตรงจาก a ไป b โล่งพอให้ตัว monster ผ่าน (กวาดทรงกลมขนาดลำตัวที่ระดับเอว)
+-- ไม่นับ monster และผู้เล่น (เดินชนกันเองได้ ไม่ใช่สิ่งกีดขวางถาวร)
+local sweepParams = RaycastParams.new()
+sweepParams.FilterType = Enum.RaycastFilterType.Exclude
+local function ignoreList(m)
+	local ignore = { m.Model, workspace:FindFirstChild("Monsters") }
+	for _, player in Players:GetPlayers() do
+		table.insert(ignore, player.Character)
+	end
+	return ignore
+end
+local overlapParams = OverlapParams.new()
+overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+local function canWalkStraight(m, a, b)
+	local low = Vector3.new(0, 1.5, 0)
+	local from, to = a - low, Vector3.new(b.X, a.Y, b.Z) - low
+	local move = to - from
+	if move.Magnitude < 0.05 then
+		return true
+	end
+	local radius = math.max(0.8, m.Radius + 0.1)
+	local ignore = ignoreList(m)
+	-- Spherecast ไม่นับ part ที่ทรงกลมทับอยู่แล้วตอนเริ่ม (ตัวแนบกำแพงอยู่) -> ตรวจเองว่ากำลังเดินเข้าหา part นั้นไหม
+	overlapParams.FilterDescendantsInstances = ignore
+	for _, part in workspace:GetPartBoundsInRadius(from, radius, overlapParams) do
+		if part.CanCollide then
+			local half = part.Size / 2
+			local localPos = part.CFrame:PointToObjectSpace(from)
+			local closest = part.CFrame:PointToWorldSpace(Vector3.new(
+				math.clamp(localPos.X, -half.X, half.X),
+				math.clamp(localPos.Y, -half.Y, half.Y),
+				math.clamp(localPos.Z, -half.Z, half.Z)
+			))
+			local away = flat(from - closest) -- พื้นใต้เท้า: away ราบ = 0 -> ไม่นับ
+			if away.Magnitude > 0.01 and away.Magnitude < radius and flat(move):Dot(away) < 0 then
+				return false
+			end
+		end
+	end
+	sweepParams.FilterDescendantsInstances = ignore
+	local hit = workspace:Spherecast(from, radius, move, sweepParams)
+	return hit == nil or not hit.Instance.CanCollide
+end
 
 local function tryCompute(path, start, goal)
 	local ok = pcall(function()
@@ -65,24 +110,39 @@ local function compute(m, state, goal, now)
 	task.spawn(function()
 		local path = state.Path
 		local start = m.Root.Position
-		local waypoints
+		local waypoints, direct
 		if tryCompute(path, start, goal) then
-			waypoints = path:GetWaypoints()
-		else
+			direct = path:GetWaypoints()
+			-- ช่วงแรกต้องเดินตรงไปถึงได้: ตัวแนบมุมสิ่งกีดขวาง (เช่น กำแพงหินเตี้ยบนถนน) เส้นทางจะตัดมุมผ่านตัวสิ่งกีดขวาง
+			-- -> ดันมุมค้างอยู่ คำนวณใหม่ก็ได้เส้นเดิม -> ใช้วิธีถอยออกมาก่อนแบบเดียวกับตอนหาเส้นทางไม่ได้
+			local first = direct[math.min(2, #direct)]
+			if canWalkStraight(m, start, first.Position) then
+				waypoints = direct
+			end
+		end
+		if not waypoints then
 			-- ยืนชิดสิ่งกีดขวางจน PathfindingService ถือว่าจุดเริ่มอยู่ในสิ่งกีดขวาง (NoPath)
 			-- -> ลองหาเส้นทางจากจุดที่ถอยออกมาเล็กน้อย แล้วเดินไปจุดนั้นก่อน
+			-- จุดถอยต้องเดินตรงไปถึงได้จริง: กองหินมีหลายก้อน จุดถอยข้าง ๆ อาจอยู่หลังหินอีกก้อน
+			-- (เดิมไม่ตรวจ -> เดินชนหินก้อนนั้น ติดแล้วคำนวณได้จุดเดิมซ้ำ ค้างอยู่ที่หินตลอด)
 			local toGoal = flat(goal - start)
 			local forward = toGoal.Magnitude > 0.1 and toGoal.Unit or Vector3.zAxis
-			local step = math.max(1.5, m.Radius + 0.5) + 2.5
-			for _, angle in NUDGE_ANGLES do
-				local nudged = start + CFrame.Angles(0, math.rad(angle), 0):VectorToWorldSpace(forward) * step
-				if tryCompute(path, nudged, goal) then
-					waypoints = path:GetWaypoints()
-					table.insert(waypoints, 1, PathWaypoint.new(nudged, Enum.PathWaypointAction.Walk))
-					table.insert(waypoints, 1, PathWaypoint.new(start, Enum.PathWaypointAction.Walk))
+			local agent = math.max(1.5, m.Radius + 0.5)
+			for _, extra in NUDGE_EXTRA do
+				for _, angle in NUDGE_ANGLES do
+					local nudged = start + CFrame.Angles(0, math.rad(angle), 0):VectorToWorldSpace(forward) * (agent + extra)
+					if canWalkStraight(m, start, nudged) and tryCompute(path, nudged, goal) then
+						waypoints = path:GetWaypoints()
+						table.insert(waypoints, 1, PathWaypoint.new(nudged, Enum.PathWaypointAction.Walk))
+						table.insert(waypoints, 1, PathWaypoint.new(start, Enum.PathWaypointAction.Walk))
+						break
+					end
+				end
+				if waypoints then
 					break
 				end
 			end
+			waypoints = waypoints or direct -- ถอยไม่ได้เลย: ใช้เส้นทางเดิม (ดีกว่าเดินตรงเข้าหาเป้า)
 		end
 		state.Pending = false
 		if m.Dead then
@@ -105,11 +165,7 @@ end
 local lineParams = RaycastParams.new()
 lineParams.FilterType = Enum.RaycastFilterType.Exclude
 local function clearLine(m, from, goal)
-	local ignore = { m.Model, workspace:FindFirstChild("Monsters") }
-	for _, player in Players:GetPlayers() do
-		table.insert(ignore, player.Character)
-	end
-	lineParams.FilterDescendantsInstances = ignore
+	lineParams.FilterDescendantsInstances = ignoreList(m)
 	local low = Vector3.new(0, 1.5, 0)
 	local start = Vector3.new(from.X, from.Y, from.Z) - low
 	local finish = Vector3.new(goal.X, from.Y, goal.Z) - low
